@@ -15,6 +15,26 @@ def pseudo_inv(H: np.array):
     return S
 
 
+def cal_test_statistic(y: np.array, H: np.array):
+    # calculate pseudo inverse
+    S = pseudo_inv(H)
+    # least square
+    x_hat = S @ y
+    # calculate residual
+    z_hat_ls = y - H @ x_hat
+    # test statistics
+    z = z_hat_ls.T @ z_hat_ls
+
+    return z.item()
+
+
+def cal_chi_square_centrality(mu, H):
+    # calculate the non-centrality for chi-square
+    centrality = mu.T @ (np.eye(H.shape[0]) - H @ pseudo_inv(H)) @ mu
+
+    return centrality.item()
+
+
 def cal_test_statistic_H0(x_true: np.array = None, H: np.array = None):
     if x_true is None:
         x_true = np.array([[1], [2]])
@@ -25,18 +45,10 @@ def cal_test_statistic_H0(x_true: np.array = None, H: np.array = None):
     epsilon = np.random.randn(H.shape[0], 1)
     # observation vector, measurement
     y = H @ x_true + epsilon
+    # calculate test statistics
+    z = cal_test_statistic(y, H)
 
-    # Least Square
-    S = pseudo_inv(H)
-    x_hat = S @ y
-
-    # residual
-    z_hat_ls = y - H @ x_hat
-
-    # test statistics
-    z = z_hat_ls.T @ z_hat_ls
-
-    return z.item()
+    return z
 
 
 def cal_test_statistic_H0_mc(
@@ -66,20 +78,13 @@ def cal_test_statistic_H1(
     # observation vector, measurement
     y = H @ x_true + epsilon + mu
 
-    # Least Square
-    S = pseudo_inv(H)
-    x_hat = S @ y
-
-    # residual
-    z_hat_ls = y - H @ x_hat
-
     # test statistics
-    z = z_hat_ls.T @ z_hat_ls
+    z = cal_test_statistic(y, H)
 
     # non-centrality for chi-square
-    centrality = mu.T @ (np.eye(H.shape[0]) - H @ S) @ mu
+    centrality = cal_chi_square_centrality(mu, H)
 
-    return z.item(), centrality.item()
+    return z, centrality
 
 
 def cal_test_statistic_H1_mc(
@@ -176,55 +181,52 @@ def toy_example_fault_identification():
     # the value of fault
     mu = 50
     # number of Monte Carlo simulations
-    mc = 5000
+    mc = 2000
 
     # store the calculated test statistic results,
-    z_result = np.zeros((mc, e_matrix.shape[1]))
+    z_result = np.zeros((e_matrix.shape[0], mc, e_matrix.shape[1]))
+    # calculate the test statistic for different e_j
+    for j in range(e_matrix.shape[0]):
+        for mc_iter in range(mc):
+            # Generate a column vector of normally distributed random variables
+            epsilon = np.random.randn(H.shape[0], 1)
+            # observation vector, here we put the fault in the j-th observation value
+            y = H @ x_true + epsilon + mu * e_matrix[:, j].reshape(-1, 1)
+            # for different e_i, calculate the test stastics
+            for i in range(e_matrix.shape[1]):
+                # append the e_i column vector to the observation matrix, H, to generate H_i
+                H_i = np.column_stack((H, e_matrix[:, i]))
+                # store the result
+                z_result[j, mc_iter, i] = cal_test_statistic(y, H_i)
 
     # Create a figure and axis
-    fig, ax = plt.subplots()
-
-    for mc_iter in range(mc):
-        # Generate a column vector of normally distributed random variables
-        epsilon = np.random.randn(H.shape[0], 1)
-        # observation vector, here we put the fault in the first observation value
-        y = H @ x_true + epsilon + mu * e_matrix[:, 3].reshape(-1, 1)
-        # for each column of e_matrix, calculate the test stastics
+    fig, ax = plt.subplots(2, 3, figsize=(12, 8))
+    # Plot results for different e_j
+    for j in range(6):
+        row, col = divmod(j, 3)  # Calculate row and column index
+        # plot the histogram for the test statistic calculated by different e_i
+        # we expect when e_j = e_i, the distribution of test statistic should be a central chi-square distribution
         for i in range(e_matrix.shape[1]):
-            # append the e_i column vector to the observation matrix, H, to generate H_i
-            H_i = np.column_stack((H, e_matrix[:, i]))
-            # calculate pseudo inverse
-            S_i = pseudo_inv(H_i)
-            # least square
-            x_hat_lsi_mu_hat_i = S_i @ y
-            # residual vector
-            z_hat_lsi = y - H_i @ x_hat_lsi_mu_hat_i
-            # test stastic
-            z = z_hat_lsi.T @ z_hat_lsi
-            # store the result
-            z_result[mc_iter, i] = z.item()
-
-    # plot the histogram for the test statistic calculated by different e_i
-    for i in range(e_matrix.shape[1]):
-        ax.hist(
-            z_result[:, i],
-            bins=30,
-            density=True,
-            # color="blue",
-            alpha=0.5,
-            edgecolor="black",
-            label=f"z_H{i}",
-        )
-
-    # Parameters
-    x_limit = 40  # Limit for x-axis
-    # Call the function to plot the non-central chi-squared distribution
-    plot_non_central_chi2(ax, m - n - 1, 0, x_limit)
-
-    # ax.set_xlim([0, x_limit])
-    ax.legend()
+            ax[row, col].hist(
+                z_result[j, :, i],
+                bins=30,
+                density=True,
+                # color="blue",
+                alpha=0.5,
+                edgecolor="black",
+                label=f"$\\text{{z}}_{{{{H}}_{i}}}$",
+            )
+        # Parameters
+        x_limit = 40  # Limit for x-axis
+        # Call the function to plot the central chi-squared distribution
+        # When e_j = e_i, the distribution of test statistic z_i should be a central chi-square distribution
+        plot_non_central_chi2(ax[row, col], m - n - 1, 0, x_limit)
+        ax[row, col].set_xlim([0, x_limit])
+        ax[row, col].legend()
+        ax[row, col].set_title(f"$e_j = e_{j}$")
 
     # Show the plot
+    plt.tight_layout()
     plt.show()
 
 
