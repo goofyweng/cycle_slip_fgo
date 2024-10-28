@@ -14,6 +14,7 @@ def pseudo_inv(H: np.array):
     S = np.linalg.inv(H.T @ H) @ H.T
     return S
 
+
 def cal_test_statistic_H0(x_true: np.array = None, H: np.array = None):
     if x_true is None:
         x_true = np.array([[1], [2]])
@@ -91,9 +92,11 @@ def cal_test_statistic_H1_mc(
     return z_array, centrality
 
 
-
-
-if __name__ == "__main__":
+def toy_example_fault_detection():
+    """
+    A toy example for fault detection. The test statistics is calculated in Monte Carlo simulation.
+    The distiburition of the test statistics is drawn and compared with theroitical chi-square disctribution.
+    """
     # set up
     # state true value
     x_true = np.array([[1], [2]])
@@ -151,3 +154,80 @@ if __name__ == "__main__":
 
     # Show the plot
     plt.show()
+
+
+def toy_example_fault_identification():
+    """
+    This toy example assume fault detection is performed and we know the fault exist in observation vector.
+    Here we only consider single fault case. We then move on to the second step: try to identify which observation
+    is contaminated by the fault.
+    """
+    # set up
+    # state true value
+    x_true = np.array([[1], [2]])
+    # observation matrix
+    H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1], [5, 9]])
+    # number of states
+    n = H.shape[1]
+    # number of measurements
+    m = H.shape[0]
+    # setup e matrix which contains all the e_i vector in each column, i=1, 2,..., 6
+    e_matrix = np.eye(6)
+    # the value of fault
+    mu = 50
+    # number of Monte Carlo simulations
+    mc = 5000
+
+    # store the calculated test statistic results,
+    z_result = np.zeros((mc, e_matrix.shape[1]))
+
+    # Create a figure and axis
+    fig, ax = plt.subplots()
+
+    for mc_iter in range(mc):
+        # Generate a column vector of normally distributed random variables
+        epsilon = np.random.randn(H.shape[0], 1)
+        # observation vector, here we put the fault in the first observation value
+        y = H @ x_true + epsilon + mu * e_matrix[:, 3].reshape(-1, 1)
+        # for each column of e_matrix, calculate the test stastics
+        for i in range(e_matrix.shape[1]):
+            # append the e_i column vector to the observation matrix, H, to generate H_i
+            H_i = np.column_stack((H, e_matrix[:, i]))
+            # calculate pseudo inverse
+            S_i = pseudo_inv(H_i)
+            # least square
+            x_hat_lsi_mu_hat_i = S_i @ y
+            # residual vector
+            z_hat_lsi = y - H_i @ x_hat_lsi_mu_hat_i
+            # test stastic
+            z = z_hat_lsi.T @ z_hat_lsi
+            # store the result
+            z_result[mc_iter, i] = z.item()
+
+    # plot the histogram for the test statistic calculated by different e_i
+    for i in range(e_matrix.shape[1]):
+        ax.hist(
+            z_result[:, i],
+            bins=30,
+            density=True,
+            # color="blue",
+            alpha=0.5,
+            edgecolor="black",
+            label=f"z_H{i}",
+        )
+
+    # Parameters
+    x_limit = 40  # Limit for x-axis
+    # Call the function to plot the non-central chi-squared distribution
+    plot_non_central_chi2(ax, m - n - 1, 0, x_limit)
+
+    # ax.set_xlim([0, x_limit])
+    ax.legend()
+
+    # Show the plot
+    plt.show()
+
+
+if __name__ == "__main__":
+    # toy_example_fault_detection()
+    toy_example_fault_identification()
