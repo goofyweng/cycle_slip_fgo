@@ -171,7 +171,7 @@ def toy_example_fault_identification():
     # state true value
     x_true = np.array([[1], [2]])
     # observation matrix
-    H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1], [5, 9]])
+    H = np.array([[1, 0], [0, 1], [1, 1], [1, 3], [-1, 1], [1, -2]])
     # number of states
     n = H.shape[1]
     # number of measurements
@@ -179,7 +179,7 @@ def toy_example_fault_identification():
     # setup e matrix which contains all the e_i vector in each column, i=1, 2,..., 6
     e_matrix = np.eye(6)
     # the value of fault
-    mu = 50
+    mu = 7
     # number of Monte Carlo simulations
     mc = 2000
 
@@ -225,8 +225,26 @@ def toy_example_fault_identification():
         ax[row, col].legend()
         ax[row, col].set_title(f"$e_j = e_{j}$")
 
+    fig2, ax2 = plt.subplots()
+    for i in range(e_matrix.shape[1]):
+        ax2.hist(
+            z_result[0, :, i],
+            bins=30,
+            density=True,
+            # color="blue",
+            alpha=0.5,
+            edgecolor="black",
+            label=f"$\\text{{z}}_{{{{H}}_{i}}}$",
+        )
+        # Call the function to plot the central chi-squared distribution
+        # When e_j = e_i, the distribution of test statistic z_i should be a central chi-square distribution
+    plot_non_central_chi2(ax2, m - n - 1, 0, x_limit)
+    ax2.legend()
+    ax2.set_title(f"$e_j = e_{0}$")
+    
     # Show the plot
-    plt.tight_layout()
+    fig.tight_layout()
+    fig2.tight_layout()
     plt.show()
 
 
