@@ -144,7 +144,7 @@ def toy_example_fault_detection():
         color="blue",
         alpha=0.5,
         edgecolor="black",
-        label="z_H0",
+        label=f"$\\text{{z}}_{{{{H}}_{0}}}$",
     )
     ax.hist(
         z_H1_mc,
@@ -153,7 +153,7 @@ def toy_example_fault_detection():
         color="orange",
         alpha=0.5,
         edgecolor="black",
-        label="z_H1",
+        label=f"$\\text{{z}}_{{{{H}}_{1}}}$",
     )
     ax.legend()
 
@@ -249,5 +249,5 @@ def toy_example_fault_identification():
 
 
 if __name__ == "__main__":
-    # toy_example_fault_detection()
-    toy_example_fault_identification()
+    toy_example_fault_detection()
+    # toy_example_fault_identification()
