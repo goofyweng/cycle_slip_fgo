@@ -214,7 +214,8 @@ def toy_example_fault_identification():
                 # color="blue",
                 alpha=0.5,
                 edgecolor="black",
-                label=f"$\\text{{z}}_{{{{H}}_{i}}}$",
+                # label=f"$\\text{{z}}_{{{{H}}_{i}}}$",
+                label=f"$\\text{{z}}_{i}$",
             )
         # Parameters
         x_limit = 40  # Limit for x-axis
@@ -234,7 +235,8 @@ def toy_example_fault_identification():
             # color="blue",
             alpha=0.5,
             edgecolor="black",
-            label=f"$\\text{{z}}_{{{{H}}_{i}}}$",
+            # label=f"$\\text{{z}}_{{{{H}}_{i}}}$",
+                label=f"$\\text{{z}}_{i}$",
         )
         # Call the function to plot the central chi-squared distribution
         # When e_j = e_i, the distribution of test statistic z_i should be a central chi-square distribution
