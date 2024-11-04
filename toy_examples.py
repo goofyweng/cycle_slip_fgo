@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from plot_dist import plot_non_central_chi2
+from plot_dist import plot_non_central_chi2, draw_vertical_line
+import scipy.stats as stats
 
 
 def pseudo_inv(H: np.array):
@@ -250,6 +251,52 @@ def toy_example_fault_identification():
     plt.show()
 
 
+def toy_example_pobability_of_false_alarm():
+    # set up
+    # state true value
+    x_true = np.array([[1], [2]])
+    # observation matrix
+    H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1], [5, 9]])
+    # number of states
+    n = H.shape[1]
+    # number of measurements
+    m = H.shape[0]
+    # calculate test statistics in H0
+    z_H0 = cal_test_statistic_H0(x_true, H)
+
+    mu = np.array([[3], [0], [0], [0], [0], [0]])
+    # calculate test statistics in H1
+    z_H1, centrality = cal_test_statistic_H1(x_true, H, mu=mu)
+
+    # Create a figure and axis
+    fig, ax = plt.subplots()
+
+    # Parameters
+    x_limit = 40  # Limit for x-axis
+
+    # Call the function to plot the non-central chi-squared distribution
+    plot_non_central_chi2(ax, m - n, 0, x_limit)
+    plot_non_central_chi2(ax, m - n, centrality, x_limit)
+
+    # Generate x values and the PDF for a chi-squared distribution
+    x = np.linspace(0, x_limit, 1000)
+    # Calculate the PDF for the non-central chi-squared distribution
+    pdf_h0 = stats.ncx2.pdf(x, m - n, 0)
+    pdf_h1 = stats.ncx2.pdf(x, m-n, centrality)
+    # The threshold
+    T = 6.1
+
+    draw_vertical_line(ax, T, "red", "T")
+
+    ax.fill_between(x, pdf_h0, where=(x >= T), color="blue", alpha=0.5, label="$P_{fa}$")
+    # ax.fill_between(x, pdf_h1, where=(x >= T), color="yellow", alpha=0.5, label="P_d")
+    ax.legend()
+    ax.set_ylim([0,0.2])
+    fig.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
-    toy_example_fault_detection()
+    # toy_example_fault_detection()
     # toy_example_fault_identification()
+    toy_example_pobability_of_false_alarm()
