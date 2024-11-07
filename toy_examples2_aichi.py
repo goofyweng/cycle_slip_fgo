@@ -9,25 +9,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import chi2, ncx2
 
-def generate_Hi(num_place, H):
-    if num_place >= H.shape[0]: 
-        raise ValueError("num_place exceeds matrix row dimensions.")
-    else:
-        e = np.zeros((H.shape[0], 1))
-        e[num_place] = 1
-        Hi = np.hstack((H, e))
-        return Hi, e
-
 x = np.array([[1], [2]])
 H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1]])
-mu = np.array([[3], [0], [0], [0], [0]]) # not adding in H0 case
+mu = np.array([[5], [0], [0], [0], [0]]) # not adding in H0 case
 m = H.shape[0]
 n = H.shape[1]
 df = m - n  
-S = np.linalg.pinv(H)
 
 num_run = 5000
 
+e_matrix = np.eye(m)
 z_array = np.zeros((H.shape[0], num_run))
 nc_array = np.zeros((H.shape[0]))
 color_array = ["skyblue", "lightcoral", "lightgreen", "gold", "plum", "orange", "mediumseagreen"]
@@ -35,8 +26,7 @@ color_array = ["skyblue", "lightcoral", "lightgreen", "gold", "plum", "orange", 
 for i in range(H.shape[0]):
 
     # set new form 
-    Hi, e = generate_Hi(i, H)
-    mui = abs(np.max(mu)) * e
+    Hi = np.hstack((H, e_matrix[:,i].reshape(-1, 1)))
     xi = np.vstack((x, abs(np.max(mu))))
     Si = np.linalg.pinv(Hi)
     dfi = Hi.shape[0] - Hi.shape[1]
@@ -44,9 +34,9 @@ for i in range(H.shape[0]):
 
     for j in range (num_run):
         epsilon = np.random.randn(m,1)
-        y = H @ x + mu + epsilon
-        x_est = Si @ y
-        z_est = y - Hi @ x_est
+        yi = H @ x + mu + epsilon # generate observation which content bias
+        x_est = Si @ yi
+        z_est = yi - Hi @ x_est
         z_array[i, j] = z_est.T @ z_est
 
 
