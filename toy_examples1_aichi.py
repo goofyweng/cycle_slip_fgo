@@ -1,3 +1,10 @@
+"""
+This example is to present the situation of "detecting bias" 
+by observing the residual distribution 
+
+Ans: The one with non-central chi-square distribution has bias
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import chi2, ncx2
@@ -14,7 +21,7 @@ num_run = 5000
 z_array0 = np.zeros((num_run,))
 z_array1 = np.zeros((num_run,))
 nc0 = 0 # centrality
-nc1 = mu.T @ (np.eye(m)-H @ S) @ mu
+nc1 = mu.T @ (np.eye(m)- H @ S) @ mu
 
 for i in range(num_run):
     epsilon = np.random.randn(m,1) # It's important to use normal distribution, and 
@@ -22,7 +29,6 @@ for i in range(num_run):
     x_est0 = S @ y0
     z_est0 = y0 - H @ x_est0
     z_array0[i] = z_est0.T @ z_est0
-
 
     y1 = H @ x + epsilon + mu
     x_est1 = S @ y1
