@@ -276,6 +276,7 @@ def toy_example_pobability_of_false_alarm():
 
     # Call the function to plot the non-central chi-squared distribution
     plot_non_central_chi2(ax, m - n, 0, x_limit)
+    plot_non_central_chi2(ax, m-n, centrality-3, x_limit)
     plot_non_central_chi2(ax, m - n, centrality, x_limit)
 
     # Generate x values and the PDF for a chi-squared distribution
