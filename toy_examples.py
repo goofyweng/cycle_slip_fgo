@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from plot_dist import plot_non_central_chi2, draw_vertical_line
 import scipy.stats as stats
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 
 def pseudo_inv(H: np.array):
@@ -162,7 +163,7 @@ def toy_example_fault_detection():
     plt.show()
 
 
-def toy_example_fault_identification():
+def toy_example_fault_identification_mc():
     """
     This toy example assume fault detection is performed and we know the fault exist in observation vector.
     Here we only consider single fault case. We then move on to the second step: try to identify which observation
@@ -237,17 +238,74 @@ def toy_example_fault_identification():
             alpha=0.5,
             edgecolor="black",
             # label=f"$\\text{{z}}_{{{{H}}_{i}}}$",
-                label=f"$\\text{{z}}_{i}$",
+            label=f"$\\text{{z}}_{i}$",
         )
         # Call the function to plot the central chi-squared distribution
         # When e_j = e_i, the distribution of test statistic z_i should be a central chi-square distribution
     plot_non_central_chi2(ax2, m - n - 1, 0, x_limit)
     ax2.legend()
     ax2.set_title(f"$e_j = e_{0}$")
-    
+
     # Show the plot
     fig.tight_layout()
     fig2.tight_layout()
+    plt.show()
+
+
+def toy_example_fault_identification_confusion_matrix():
+    """
+    This toy example assume fault detection is performed and we know the fault exist in observation vector.
+    Here we only consider single fault case. We then move on to the second step: try to identify which observation
+    is contaminated by the fault. We use the cauclated test statistics, z_i, as input to the central
+    chi-squared distribution to find the location of the fault in measruement. The result is visiualized
+    with confusion matrix.
+    """
+    # set up
+    # state true value
+    x_true = np.array([[1], [2]])
+    # observation matrix
+    H = np.array([[1, 0], [0, 1], [1, 1], [1, 3], [-1, 1], [1, -2]])
+    # number of states
+    n = H.shape[1]
+    # number of measurements
+    m = H.shape[0]
+    # setup e matrix which contains all the e_i vector in each column, i=1, 2,..., 6
+    e_matrix = np.eye(H.shape[0])
+    # the value of fault
+    mu = 5
+    # store the calculated test statistics
+    z_result = np.zeros(e_matrix.shape)
+    # Generate a column vector of normally distributed random variables
+    epsilon = np.random.randn(H.shape[0], 1)
+    # calculate the test statistic for differnet e_j
+    for j in range(e_matrix.shape[0]):
+        # observation vector, here we put the fault in the j-th observation value
+        y = H @ x_true + epsilon + mu * e_matrix[:, j].reshape(-1, 1)
+        # for different e_i, calculate the test statistics
+        for i in range(e_matrix.shape[1]):
+            # append the e_i column vector to the observation matrix, H, to generate H_i
+            H_i = np.column_stack((H, e_matrix[:, i]))
+            # store the result
+            z_result[j, i] = cal_test_statistic(y, H_i)
+
+    # degree of freedom
+    dof = m - n - 1
+    # centrality of chi-squared dist.
+    nc = 0
+    # get the value of chi-squared pdf with z_i as input
+    # here each row represent different j value, i.e. differnece true location of the fault
+    chi2_pdf_value = np.array([stats.ncx2.pdf(z_i, dof, nc) for z_i in z_result])
+    # find i_hat by finding the index of the maximum value of the value of chi-squared pdf in each row
+    i_hat = np.argmax(chi2_pdf_value, axis=1)
+    print(f"i_hat:\n{i_hat}")
+    i_true = np.argmax(e_matrix, axis=0)
+
+    # build confusion matrix
+    cm_result = confusion_matrix(i_true, i_hat)
+    cm_result = cm_result / np.sum(cm_result)
+    # visiualize confusion matrix
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm_result)
+    disp.plot()
     plt.show()
 
 
@@ -276,28 +334,31 @@ def toy_example_pobability_of_false_alarm():
 
     # Call the function to plot the non-central chi-squared distribution
     plot_non_central_chi2(ax, m - n, 0, x_limit)
-    plot_non_central_chi2(ax, m-n, centrality-3, x_limit)
+    plot_non_central_chi2(ax, m - n, centrality - 3, x_limit)
     plot_non_central_chi2(ax, m - n, centrality, x_limit)
 
     # Generate x values and the PDF for a chi-squared distribution
     x = np.linspace(0, x_limit, 1000)
     # Calculate the PDF for the non-central chi-squared distribution
     pdf_h0 = stats.ncx2.pdf(x, m - n, 0)
-    pdf_h1 = stats.ncx2.pdf(x, m-n, centrality)
+    pdf_h1 = stats.ncx2.pdf(x, m - n, centrality)
     # The threshold
     T = 6.1
 
     draw_vertical_line(ax, T, "red", "T")
 
-    ax.fill_between(x, pdf_h0, where=(x >= T), color="blue", alpha=0.5, label="$P_{fa}$")
+    ax.fill_between(
+        x, pdf_h0, where=(x >= T), color="blue", alpha=0.5, label="$P_{fa}$"
+    )
     # ax.fill_between(x, pdf_h1, where=(x >= T), color="yellow", alpha=0.5, label="P_d")
     ax.legend()
-    ax.set_ylim([0,0.2])
+    ax.set_ylim([0, 0.2])
     fig.tight_layout()
     plt.show()
 
 
 if __name__ == "__main__":
     # toy_example_fault_detection()
-    # toy_example_fault_identification()
-    toy_example_pobability_of_false_alarm()
+    # toy_example_fault_identification_mc()
+    # toy_example_pobability_of_false_alarm()
+    toy_example_fault_identification_confusion_matrix()
