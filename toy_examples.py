@@ -273,38 +273,44 @@ def toy_example_fault_identification_confusion_matrix():
     e_matrix = np.eye(H.shape[0])
     # the value of fault
     mu = 5
-    # store the calculated test statistics
-    z_result = np.zeros(e_matrix.shape)
-    # Generate a column vector of normally distributed random variables
-    epsilon = np.random.randn(H.shape[0], 1)
-    # calculate the test statistic for differnet e_j
-    for j in range(e_matrix.shape[0]):
-        # observation vector, here we put the fault in the j-th observation value
-        y = H @ x_true + epsilon + mu * e_matrix[:, j].reshape(-1, 1)
-        # for different e_i, calculate the test statistics
-        for i in range(e_matrix.shape[1]):
-            # append the e_i column vector to the observation matrix, H, to generate H_i
-            H_i = np.column_stack((H, e_matrix[:, i]))
-            # store the result
-            z_result[j, i] = cal_test_statistic(y, H_i)
-
     # degree of freedom
     dof = m - n - 1
     # centrality of chi-squared dist.
     nc = 0
-    # get the value of chi-squared pdf with z_i as input
-    # here each row represent different j value, i.e. differnece true location of the fault
-    chi2_pdf_value = np.array([stats.ncx2.pdf(z_i, dof, nc) for z_i in z_result])
-    # find i_hat by finding the index of the maximum value of the value of chi-squared pdf in each row
-    i_hat = np.argmax(chi2_pdf_value, axis=1)
-    print(f"i_hat:\n{i_hat}")
-    i_true = np.argmax(e_matrix, axis=0)
+    # number of Monte Carlo runs
+    mc = 2000
+    
+    cm_result_mc = np.zeros(e_matrix.shape)
+    for mc_ in range(mc):
+        # store the calculated test statistics
+        z_result = np.zeros(e_matrix.shape)
+        # Generate a column vector of normally distributed random variables
+        epsilon = np.random.randn(H.shape[0], 1)
+        # calculate the test statistic for differnet e_j
+        for j in range(e_matrix.shape[0]):
+            # observation vector, here we put the fault in the j-th observation value
+            y = H @ x_true + epsilon + mu * e_matrix[:, j].reshape(-1, 1)
+            # for different e_i, calculate the test statistics
+            for i in range(e_matrix.shape[1]):
+                # append the e_i column vector to the observation matrix, H, to generate H_i
+                H_i = np.column_stack((H, e_matrix[:, i]))
+                # store the result
+                z_result[j, i] = cal_test_statistic(y, H_i)
+        # get the value of chi-squared pdf with z_i as input
+        # here each row represent different j value, i.e. differnece true location of the fault
+        chi2_pdf_value = np.array([stats.ncx2.pdf(z_i, dof, nc) for z_i in z_result])
+        # find i_hat by finding the index of the maximum value of the value of chi-squared pdf in each row
+        i_hat = np.argmax(chi2_pdf_value, axis=1)
+        # the true fault location
+        i_true = np.argmax(e_matrix, axis=0)
+        # build confusion matrix
+        cm_result = confusion_matrix(i_true, i_hat)
+        # store the confusion matrix result for MonteCarlo simulation
+        cm_result_mc += cm_result
 
-    # build confusion matrix
-    cm_result = confusion_matrix(i_true, i_hat)
-    cm_result = cm_result / np.sum(cm_result)
+    cm_result_mc = cm_result_mc / np.sum(cm_result_mc)
     # visiualize confusion matrix
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm_result)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm_result_mc)
     disp.plot()
     plt.show()
 
