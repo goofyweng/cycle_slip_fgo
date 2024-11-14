@@ -308,10 +308,14 @@ def toy_example_fault_identification_confusion_matrix():
         # store the confusion matrix result for MonteCarlo simulation
         cm_result_mc += cm_result
 
-    cm_result_mc = cm_result_mc / np.sum(cm_result_mc)
+    cm_result_mc = cm_result_mc / np.sum(cm_result_mc) * 100
     # visiualize confusion matrix
     disp = ConfusionMatrixDisplay(confusion_matrix=cm_result_mc)
     disp.plot()
+    disp.ax_.set_xticklabels([f"$e_{i}$" for i in range(m)])
+    disp.ax_.set_yticklabels([f"$e_{i}$" for i in range(m)])
+    disp.ax_.set_xlabel("Predicted error, $e_i$")
+    disp.ax_.set_ylabel("True error, $e_j$")
     plt.show()
 
 
