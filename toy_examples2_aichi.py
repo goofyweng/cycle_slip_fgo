@@ -11,7 +11,7 @@ from scipy.stats import chi2, ncx2
 
 x = np.array([[1], [2]])
 H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1]])
-mu = np.array([[5], [0], [0], [0], [0]]) # not adding in H0 case, unknown in real 
+mu = np.array([[0], [0], [0], [5], [0]]) # unknown in real 
 m = H.shape[0]
 n = H.shape[1]
 df = m - n  
@@ -23,24 +23,22 @@ z_array = np.zeros((H.shape[0], num_run))
 nc_array = np.zeros((H.shape[0]))
 color_array = ["skyblue", "lightcoral", "lightgreen", "gold", "plum", "orange", "mediumseagreen"]
 
-for i in range(H.shape[0]):
+for i in range(num_run):
+    epsilon = np.random.randn(m,1)
+    yi = H @ x + mu + epsilon # generate observation which content bias
 
-    # set new form 
-    Hi = np.hstack((H, e_matrix[:,i].reshape(-1, 1)))
-    xi = np.vstack((x, abs(np.max(mu))))
-    Si = np.linalg.pinv(Hi)
-    nc_array[i] = mu.T @ (np.eye(Hi.shape[0])- Hi @ Si) @ mu # unknown in real
+    for j in range (H.shape[0]):
+        Hj = np.hstack((H, e_matrix[:,j].reshape(-1, 1)))
+        Sj = np.linalg.pinv(Hj)
+        x_est = Sj @ yi
+        z_est = yi - Hj @ x_est
+        z_array[j, i] = z_est.T @ z_est
+        nc_array[j] = mu.T @ (np.eye(Hj.shape[0])- Hj @ Sj) @ mu # unknown in real
 
-    for j in range (num_run):
-        epsilon = np.random.randn(m,1)
-        yi = H @ x + mu + epsilon # generate observation which content bias
-        x_est = Si @ yi
-        z_est = yi - Hi @ x_est
-        z_array[i, j] = z_est.T @ z_est
 
 # use one column of z_array to determine which measurement is biased
 # bc in real case we always have one set of measurement
-pdf_values = chi2.pdf(z_array[:,1],0)
+pdf_values = chi2.pdf(z_array[:,1],dfi)
 max_index = np.argmax(pdf_values)
 print(f"The {max_index+1} is the biased measurement")
 
