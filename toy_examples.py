@@ -163,6 +163,110 @@ def toy_example_fault_detection():
     plt.show()
 
 
+def toy_example_fault_detection_check_probability_of_false_alarm():
+    """
+    This toy example performs fault detection. Check if the
+    Probability of false alarm, P_fa, is asyumptotically close
+    to the set value.
+    """
+    # set up
+    # state true value
+    x_true = np.array([[1], [2]])
+    # observation matrix
+    H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1], [5, 9]])
+    # number of states
+    n = H.shape[1]
+    # number of measurements
+    m = H.shape[0]
+    # number of MonteCarlo runs
+    n_mcs = np.arange(5, 5001, 50)
+    # error vector
+    mu = np.array([[3], [0], [0], [0], [0], [0]])
+    # define the threshold T, by the probability of false alarm
+    P_fa_set = 0.1
+    T = stats.chi2.ppf(1 - P_fa_set, m - n)
+    # store calculate P_fa
+    P_fa_result = np.zeros(n_mcs.shape)
+    idx = 0
+    for n_mc in n_mcs:
+        # calculate test statistics in H0 (true no fault), MonteCarlo
+        z_H0_mc = cal_test_statistic_H0_mc(x_true, H, n_mc)
+        # calculate test statistics in H1, MonteCarlo
+        z_H1_mc, centrality = cal_test_statistic_H1_mc(x_true, H, mu, n_mc)
+        # number of False Positive
+        n_FP = np.sum(z_H0_mc > T)
+        # number of True Negative
+        n_TN = z_H0_mc.size - n_FP
+        # number of True Positive
+        n_TP = np.sum(z_H1_mc > T)
+        # number of False Negative
+        n_FN = z_H1_mc - n_TP
+        # Probability of false alarm
+        P_fa = n_FP / (n_FP + n_TN)
+        # Probability of detection
+        P_det = n_TP / (n_TP + n_FN)
+        # store P_fa
+        P_fa_result[idx] = P_fa
+        idx = idx + 1
+
+    fig, ax = plt.subplots()
+    ax.plot(n_mcs, P_fa_result, label="Calculated")
+    ax.axhline(P_fa_set, color="red", linestyle="--", linewidth=2, label="Set value")
+    ax.set_title("Probability of false alarm")
+    ax.set_xlabel("Number of detections")
+    ax.set_ylabel("$P_{fa}$")
+    ax.legend()
+    plt.show()
+
+
+def toy_example_fault_detection_check_probability_of_detection():
+    """
+    This toy example performs fault detection. Check if the
+    probability of detection increase as the fault amplitude increase.
+    """
+    # set up
+    # state true value
+    x_true = np.array([[1], [2]])
+    # observation matrix
+    H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1], [5, 9]])
+    # number of states
+    n = H.shape[1]
+    # number of measurements
+    m = H.shape[0]
+    # number of MonteCarlo runs
+    n_mc = 2000
+    # error amplitude
+    mu_value = np.arange(0, 11, 0.5)
+    # define the threshold T, by the probability of false alarm
+    P_fa_set = 0.1
+    T = stats.chi2.ppf(1 - P_fa_set, m - n)
+    # store calculate P_det
+    P_det_result = np.zeros(mu_value.shape)
+    idx = 0
+    for mu_ in mu_value:
+        # error vector
+        mu = np.array([[mu_], [0], [0], [0], [0], [0]])
+        # calculate test statistics in H1, MonteCarlo
+        z_H1_mc, centrality = cal_test_statistic_H1_mc(x_true, H, mu, n_mc)
+        # number of True Positive
+        n_TP = np.sum(z_H1_mc > T)
+        # number of False Negative
+        n_FN = z_H1_mc.size - n_TP
+        # Probability of detection
+        P_det = n_TP / (n_TP + n_FN)
+        # store P_fa
+        P_det_result[idx] = P_det
+        idx = idx + 1
+
+    fig, ax = plt.subplots()
+    ax.plot(mu_value, P_det_result, label="$P_{detection}$")
+    ax.set_title("Probability of detection")
+    ax.set_xlabel("Amplitude of $\mu$")
+    ax.set_ylabel("$P_{detection}$")
+    ax.legend()
+    plt.show()
+
+
 def toy_example_fault_identification_mc():
     """
     This toy example assume fault detection is performed and we know the fault exist in observation vector.
@@ -279,7 +383,7 @@ def toy_example_fault_identification_confusion_matrix():
     nc = 0
     # number of Monte Carlo runs
     mc = 2000
-    
+
     cm_result_mc = np.zeros(e_matrix.shape)
     for mc_ in range(mc):
         # store the calculated test statistics
@@ -371,4 +475,6 @@ if __name__ == "__main__":
     # toy_example_fault_detection()
     # toy_example_fault_identification_mc()
     # toy_example_pobability_of_false_alarm()
-    toy_example_fault_identification_confusion_matrix()
+    # toy_example_fault_identification_confusion_matrix()
+    toy_example_fault_detection_check_probability_of_false_alarm()
+    toy_example_fault_detection_check_probability_of_detection()
