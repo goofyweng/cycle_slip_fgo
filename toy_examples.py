@@ -219,10 +219,12 @@ def toy_example_fault_detection_check_probability_of_false_alarm():
     plt.show()
 
 
-def toy_example_fault_detection_check_probability_of_detection():
+def toy_example_fault_detection_check_probability_of_detection_and_false_alarm():
     """
     This toy example performs fault detection. Check if the
     probability of detection increase as the fault amplitude increase.
+    Check if the probability of false alarm stays the same with differnet
+    fault amplitude.
     """
     # set up
     # state true value
@@ -242,27 +244,39 @@ def toy_example_fault_detection_check_probability_of_detection():
     T = stats.chi2.ppf(1 - P_fa_set, m - n)
     # store calculate P_det
     P_det_result = np.zeros(mu_value.shape)
+    P_fa_result = np.zeros(mu_value.shape)
     idx = 0
     for mu_ in mu_value:
+        # calculate test statistics in H0 (true no fault), MonteCarlo
+        z_H0_mc = cal_test_statistic_H0_mc(x_true, H, n_mc)
         # error vector
         mu = np.array([[mu_], [0], [0], [0], [0], [0]])
         # calculate test statistics in H1, MonteCarlo
         z_H1_mc, centrality = cal_test_statistic_H1_mc(x_true, H, mu, n_mc)
+        # number of False Positive
+        n_FP = np.sum(z_H0_mc > T)
+        # number of True Negative
+        n_TN = z_H0_mc.size - n_FP
         # number of True Positive
         n_TP = np.sum(z_H1_mc > T)
         # number of False Negative
         n_FN = z_H1_mc.size - n_TP
+        # Probability of false alarm
+        P_fa = n_FP / (n_FP + n_TN)
         # Probability of detection
         P_det = n_TP / (n_TP + n_FN)
+        # store P_fa
+        P_fa_result[idx] = P_fa
         # store P_fa
         P_det_result[idx] = P_det
         idx = idx + 1
 
     fig, ax = plt.subplots()
     ax.plot(mu_value, P_det_result, label="$P_{detection}$")
-    ax.set_title("Probability of detection")
+    ax.plot(mu_value, P_fa_result, label="$P_{FA}$")
+    ax.set_title("Probability of detection and Probability of false alarm")
     ax.set_xlabel("Amplitude of $\mu$")
-    ax.set_ylabel("$P_{detection}$")
+    ax.set_ylabel("$Probability$")
     ax.legend()
     plt.show()
 
@@ -476,5 +490,5 @@ if __name__ == "__main__":
     # toy_example_fault_identification_mc()
     # toy_example_pobability_of_false_alarm()
     # toy_example_fault_identification_confusion_matrix()
-    toy_example_fault_detection_check_probability_of_false_alarm()
-    toy_example_fault_detection_check_probability_of_detection()
+    # toy_example_fault_detection_check_probability_of_false_alarm()
+    toy_example_fault_detection_check_probability_of_detection_and_false_alarm()
