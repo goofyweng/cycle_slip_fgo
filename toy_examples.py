@@ -17,6 +17,18 @@ def pseudo_inv(H: np.array):
     return S
 
 
+def measurement_model(x: np.array, H: np.array, mu: np.array):
+    """
+    Measurement model for with white Gaussian noise,
+    and error vector, mu
+    """
+    # Generate a mx1 column vector of normally distributed random variables
+    epsilon = np.random.randn(H.shape[0], 1)
+    # observation vector, measurement
+    y = H @ x + epsilon + mu
+    return y
+
+
 def cal_test_statistic(y: np.array, H: np.array):
     # calculate pseudo inverse
     S = pseudo_inv(H)
@@ -75,10 +87,8 @@ def cal_test_statistic_H1(
     if mu is None:
         mu = np.array([[3], [0], [0], [0], [0]])
 
-    # Generate a 4x1 column vector of normally distributed random variables
-    epsilon = np.random.randn(H.shape[0], 1)
     # observation vector, measurement
-    y = H @ x_true + epsilon + mu
+    y = measurement_model(x_true, H, mu)
 
     # test statistics
     z = cal_test_statistic(y, H)
@@ -281,6 +291,58 @@ def toy_example_fault_detection_check_probability_of_detection_and_false_alarm()
     plt.show()
 
 
+def toy_example_fault_detection_confusion_matrix():
+    """
+    This toy example perform fault detection and generate a confusion matrix.
+    """
+    # set up
+    # state true value
+    x_true = np.array([[1], [2]])
+    # observation matrix
+    H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1], [5, 9]])
+    # number of states
+    n = H.shape[1]
+    # number of measurements
+    m = H.shape[0]
+    # error vector
+    mu = np.array([[4], [0], [0], [0], [0], [0]])
+    # define the threshold T, by the probability of false alarm
+    P_fa_set = 0.1
+    T = stats.chi2.ppf(1 - P_fa_set, m - n)
+    # number of MonteCarlo runs
+    n_mc = 2000
+    # store fault_true and fault_pred result
+    fault_true = np.zeros((n_mc,), dtype=int)
+    fault_pred = np.zeros((n_mc,), dtype=int)
+
+    for mc in range(n_mc):
+        # randomly select if fault exist
+        fault_bool = np.random.choice([0, 1])
+
+        if fault_bool:  # 1 mean true fault
+            fault_true[mc] = fault_bool
+            z, _ = cal_test_statistic_H1(x_true, H, mu)
+        else:  # 0 means true no fault
+            fault_true[mc] = fault_bool
+            # z = cal_test_statistic_H0(x_true, H)
+            z, _ = cal_test_statistic_H1(x_true, H, 0 * mu)
+
+        # compare test statistic with threshold
+        if z > T:
+            fault_pred[mc] = 1
+        else:
+            fault_pred[mc] = 0
+    # build and display confusion matrix
+    cm = confusion_matrix(fault_true, fault_pred)
+    cm = cm / np.sum(cm) * 100
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    disp.plot()
+    disp.ax_.set_xticklabels(["No fault", "Fault"])
+    disp.ax_.set_yticklabels(["No fault", "Fault"])
+
+    plt.show()
+
+
 def toy_example_fault_identification_mc():
     """
     This toy example assume fault detection is performed and we know the fault exist in observation vector.
@@ -407,7 +469,8 @@ def toy_example_fault_identification_confusion_matrix():
         # calculate the test statistic for differnet e_j
         for j in range(e_matrix.shape[0]):
             # observation vector, here we put the fault in the j-th observation value
-            y = H @ x_true + epsilon + mu * e_matrix[:, j].reshape(-1, 1)
+            # y = H @ x_true + epsilon + mu * e_matrix[:, j].reshape(-1, 1)
+            y = measurement_model(x_true, H, mu * e_matrix[:, j].reshape(-1, 1))
             # for different e_i, calculate the test statistics
             for i in range(e_matrix.shape[1]):
                 # append the e_i column vector to the observation matrix, H, to generate H_i
@@ -489,6 +552,7 @@ if __name__ == "__main__":
     # toy_example_fault_detection()
     # toy_example_fault_identification_mc()
     # toy_example_pobability_of_false_alarm()
-    # toy_example_fault_identification_confusion_matrix()
+    toy_example_fault_identification_confusion_matrix()
     # toy_example_fault_detection_check_probability_of_false_alarm()
-    toy_example_fault_detection_check_probability_of_detection_and_false_alarm()
+    # toy_example_fault_detection_check_probability_of_detection_and_false_alarm()
+    # toy_example_fault_detection_confusion_matrix()
