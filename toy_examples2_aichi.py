@@ -11,12 +11,11 @@ from scipy.stats import chi2, ncx2
 
 x = np.array([[1], [2]])
 H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1]])
-mu = np.array([[0], [0], [0], [5], [0]]) # unknown in real 
+mu = np.array([[5], [0], [0], [0], [0]]) # unknown in real 
 m = H.shape[0]
 n = H.shape[1]
-df = m - n  
 dfi = m - n -1 # Hi.shape[0] - Hi.shape[1]
-num_run = 2000
+num_run = 1 # if you set 1 you will only get the guess of error location, not the histogram plot
 
 e_matrix = np.eye(m)
 z_array = np.zeros((H.shape[0], num_run))
@@ -38,7 +37,7 @@ for i in range(num_run):
 
 # use one column of z_array to determine which measurement is biased
 # bc in real case we always have one set of measurement
-pdf_values = chi2.pdf(z_array[:,1],dfi)
+pdf_values = chi2.pdf(z_array[:,0],dfi)
 max_index = np.argmax(pdf_values)
 print(f"The {max_index+1} is the biased measurement")
 
@@ -47,8 +46,8 @@ x_vals = np.linspace(0, np.max(z_array), 500)
 for i in range(H.shape[0]):
 
     plt.hist(z_array[i, :], bins=30, density=True, alpha=0.5, color= color_array[i], edgecolor='#888888', label='Empirical distribution of z (central)')
-    ncx2_pdf = ncx2.pdf(x_vals, dfi, float(nc_array[i])) 
-    plt.plot(x_vals, ncx2_pdf, color=color_array[i], linestyle='--', label=f'Non-central Chi-squared PDF (df={df}, λ={float(nc_array[i]):.2f})')
+    ncx2_pdf = ncx2.pdf(x_vals, dfi, np.abs(float(nc_array[i]))) 
+    plt.plot(x_vals, ncx2_pdf, color=color_array[i], linestyle='--', label=f'Non-central Chi-squared PDF (df={dfi}, λ={float(nc_array[i]):.2f})')
 
 
 # figure setting
