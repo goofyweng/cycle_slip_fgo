@@ -2,6 +2,7 @@ import algebra as alg
 import linear_least_squares as lls
 import variables
 import numpy as np
+import scipy.stats as stats
 
 
 def criteria_to_continue(x):
@@ -42,14 +43,15 @@ def toy_example_linear_ls():
         return (result, jacobian)
 
     # x true for toy example
-    x_true_toy = np.array([[10], [20]])
+    x_true_toy = np.array([[1], [2]])
     # observation matrix
     H = np.array([[1, 0], [0, 1], [1, 1], [2, 3], [-1, 1], [5, 9]])
     y = h_toy_example(x_true_toy, H)[0]
+    y = y + np.random.randn(6, 1)
     # covariance matrix
-    R = np.eye(H.shape[0])
+    R = np.eye(6)
     # x0 for toy example
-    x0_toy = np.array([[12], [25]])
+    x0_toy = np.array([[1], [2]])
     # LS
     estimate_result = nonlinear_least_squares(h_toy_example, y, R, x0_toy, H=H)
     print(f"x_true = \n{x_true_toy}")
@@ -70,7 +72,9 @@ def toy_example_non_linear_ls():
         [[100, 0, 0, -100, 0, 0], [0, 0, 100, 0, 0, -100], [0, -100, 0, 0, 100, 0]]
     )
     y = h_toy_GNSS(x_u_true, x_s)[0]
-    # y = y + np.random.randn(y.shape[0], 1) # add noise
+    y = y + 0.01 * np.random.randn(y.shape[0], 1)  # add noise
+    # add fault
+    y[0] = y[0] + 10.5
     # covariance matrix, assume diagonal
     R = np.eye(x_s.shape[1])
     # x0 for start
@@ -79,6 +83,21 @@ def toy_example_non_linear_ls():
     estimate_result = nonlinear_least_squares(h_toy_GNSS, y, R, x0, x_s=x_s)
     print(f"x_u_true = \n{x_u_true}")
     print(f"estimate = \n{estimate_result}")
+
+    # calculate residual
+    zhat_ls = y - h_toy_GNSS(estimate_result, x_s)[0]
+    # calculate test statistics
+    z = zhat_ls.T @ zhat_ls
+    # calcuate threshold from inverse chi-squared cdf
+    P_fa_set = 0.1
+    T = stats.chi2.ppf(1 - P_fa_set, y.shape[0] - x0.shape[0])
+    # compare test statistic with threshold
+    if z <= T:
+        fault_pred = 0
+    else:
+        fault_pred = 1
+
+    print(f"Fault_pred: {fault_pred}")
 
 
 if __name__ == "__main__":
@@ -99,7 +118,7 @@ if __name__ == "__main__":
     # check linear case where function takes parameters that are not estimated, a and b here
     def h(x, a, b, c, d):
         result = np.array([[a * (x[0, 0]) + b], [c * (x[0, 0]) + d]])
-        jacobian = np.array([[a], [b]])
+        jacobian = np.array([[a], [c]])
         return (result, jacobian)
 
     a_test = 1.0
