@@ -1,3 +1,7 @@
+"""
+Detection + identification: form confusion matrix include the case 
+when there's no fault
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import chi2
