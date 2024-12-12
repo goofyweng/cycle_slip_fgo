@@ -63,7 +63,7 @@ def toy_example_non_linear_ls():
     def h_toy_GNSS(x_u, x_s):
         r = np.linalg.norm(x_s - x_u, axis=0).reshape(-1, 1)  # geometric range, (mx1)
         jacobian = -1 * (x_s - x_u).T / r  # each row is a unit vector from user to sat
-        return (r.reshape(-1, 1), jacobian)
+        return (r, jacobian)
 
     # user position
     x_u_true = np.array([1, 2, 5]).reshape(-1, 1)
@@ -99,6 +99,31 @@ def toy_example_non_linear_ls():
 
     print(f"Fault_pred: {fault_pred}")
 
+
+def toy_GNSS_example_non_linear_ls_w_usr_clk_b():
+    # model for toy GNSS example, nonlinear
+    def h_toy_GNSS_w_usr_clk_b(x_u, x_s):
+        r = np.linalg.norm(x_s[0:3,:] - x_u[0:3], axis=0).reshape(-1, 1)  # geometric range, (mx1)
+        rho = r + (x_u[-1] - x_s[-1,:]).reshape(-1,1) # add clock bias to build pseudorange
+        jacobian = np.hstack((-1 * (x_s[0:3,:] - x_u[0:3]).T / r, np.ones((rho.size,1))))  # each row is a unit vector from user to sat
+        return (rho, jacobian)
+
+    # user position
+    x_u_true = np.array([1, 2, 5, 1]).reshape(-1, 1)
+    # satellite position
+    x_s = np.array(
+        [[100, 0, 0, -100, 0, 0], [0, 0, 100, 0, 0, -100], [0, -100, 0, 0, 100, 0], [1, 2, 3, 4, 5, 6]]
+    )
+    y = h_toy_GNSS_w_usr_clk_b(x_u_true, x_s)[0]
+    y = y + 0.01 * np.random.randn(y.shape[0], 1)  # add noise
+    # covariance matrix, assume diagonal
+    R = np.eye(x_s.shape[1])
+    # x0 for start
+    x0 = np.array([0, 0, 0, 0]).reshape(-1, 1)
+    # LS
+    estimate_result = nonlinear_least_squares(h_toy_GNSS_w_usr_clk_b, y, R, x0, x_s=x_s)
+    print(f"x_u_true = \n{x_u_true}")
+    print(f"estimate = \n{estimate_result}")
 
 if __name__ == "__main__":
 
@@ -142,3 +167,4 @@ if __name__ == "__main__":
 
     # toy_example_linear_ls()
     toy_example_non_linear_ls()
+    toy_GNSS_example_non_linear_ls_w_usr_clk_b()
