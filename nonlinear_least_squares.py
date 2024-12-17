@@ -3,6 +3,7 @@ import linear_least_squares as lls
 import variables
 import numpy as np
 import scipy.stats as stats
+from scipy.linalg import block_diag
 
 
 def criteria_to_continue(x):
@@ -103,16 +104,27 @@ def toy_example_non_linear_ls():
 def toy_GNSS_example_non_linear_ls_w_usr_clk_b():
     # model for toy GNSS example, nonlinear
     def h_toy_GNSS_w_usr_clk_b(x_u, x_s):
-        r = np.linalg.norm(x_s[0:3,:] - x_u[0:3], axis=0).reshape(-1, 1)  # geometric range, (mx1)
-        rho = r + (x_u[-1] - x_s[-1,:]).reshape(-1,1) # add clock bias to build pseudorange
-        jacobian = np.hstack((-1 * (x_s[0:3,:] - x_u[0:3]).T / r, np.ones((rho.size,1))))  # each row is a unit vector from user to sat
+        r = np.linalg.norm(x_s[0:3, :] - x_u[0:3], axis=0).reshape(
+            -1, 1
+        )  # geometric range, (mx1)
+        rho = r + (x_u[-1] - x_s[-1, :]).reshape(
+            -1, 1
+        )  # add clock bias to build pseudorange
+        jacobian = np.hstack(
+            (-1 * (x_s[0:3, :] - x_u[0:3]).T / r, np.ones((rho.size, 1)))
+        )  # each row is a unit vector from user to sat
         return (rho, jacobian)
 
     # user position
     x_u_true = np.array([1, 2, 5, 1]).reshape(-1, 1)
     # satellite position
     x_s = np.array(
-        [[100, 0, 0, -100, 0, 0], [0, 0, 100, 0, 0, -100], [0, -100, 0, 0, 100, 0], [1, 2, 3, 4, 5, 6]]
+        [
+            [100, 0, 0, -100, 0, 0],
+            [0, 0, 100, 0, 0, -100],
+            [0, -100, 0, 0, 100, 0],
+            [1, 2, 3, 4, 5, 6],
+        ]
     )
     y = h_toy_GNSS_w_usr_clk_b(x_u_true, x_s)[0]
     y = y + 0.01 * np.random.randn(y.shape[0], 1)  # add noise
@@ -124,6 +136,101 @@ def toy_GNSS_example_non_linear_ls_w_usr_clk_b():
     estimate_result = nonlinear_least_squares(h_toy_GNSS_w_usr_clk_b, y, R, x0, x_s=x_s)
     print(f"x_u_true = \n{x_u_true}")
     print(f"estimate = \n{estimate_result}")
+
+
+def toy_GNSS_example_non_linear_ls_TDCP():
+    # model for GNSS code and TDCP, nonlinear
+    def h_toy_GNSS_code_TDCP(x_u, x_s1, x_s2):
+        # x_u1 is the user state at epoch 1, shape (4x1), [x1,y1,z1,tb1]^T
+        # x_u2 is the user state at epoch 2, shape (4x1)
+        x_u1 = x_u[0:4]
+        x_u2 = x_u[4:]
+        # x_s1 is the states of all k satellites at epoch 1, shape (4xk)
+        # x_s2 is the states of all k satellites at epoch 2, shape (4xk)
+        # geometric range between satellites and x_u1
+        r_1 = np.linalg.norm(x_s1[0:3, :] - x_u1[0:3], axis=0).reshape(-1, 1)
+        # geometric range between satellites and x_u2
+        r_2 = np.linalg.norm(x_s2[0:3, :] - x_u2[0:3], axis=0).reshape(-1, 1)
+        # pseudorange between satellites and user at epoch 1, add clock bias
+        rho_1 = r_1 + (x_u1[-1] - x_s1[-1, :]).reshape(-1, 1)
+        # pseudorange between satellites and user at epoch 2, add clock bias
+        rho_2 = r_2 + (x_u2[-1] - x_s2[-1, :]).reshape(-1, 1)
+        # stack rho_1 and rho_2 alternatively
+        rho = np.empty(
+            (rho_1.shape[0] + rho_2.shape[0], rho_1.shape[1]), dtype=rho_1.dtype
+        )
+        rho[0::2, :] = rho_1  # fill even rows with rows from rho_1
+        rho[1::2, :] = rho_2  # fill add rowss with rows from rho_2
+        # assume phase measurement has the same model as pseudorange
+        phase = rho
+        # concate rho and phase array vertically
+        h_x = np.vstack((rho, phase))
+
+        # build jacobian
+        jacobian_rho_1 = np.hstack(
+            (-1 * (x_s1[0:3, :] - x_u1[0:3]).T / r_1, np.ones((r_1.size, 1)))
+        )
+        jacobian_rho_2 = np.hstack(
+            (-1 * (x_s2[0:3, :] - x_u2[0:3]).T / r_2, np.ones((r_2.size, 1)))
+        )
+        jacobian_rho = np.zeros(
+            (
+                jacobian_rho_1.shape[0] + jacobian_rho_2.shape[0],
+                jacobian_rho_1.shape[1] + jacobian_rho_2.shape[1],
+            ),
+            dtype=jacobian_rho_1.dtype,
+        )
+        jacobian_rho[0::2, 0:4] = jacobian_rho_1
+        jacobian_rho[1::2, 4:] = jacobian_rho_2
+        # assume phase measurement has the same model as pseudorange
+        jacobian = np.vstack((jacobian_rho, jacobian_rho))
+
+        return (h_x, jacobian)
+
+    # user states
+    x_u_true = np.array([1, 2, 5, 1, 1, 2, 3, 1]).reshape(-1, 1)
+    # satellite states at epoch 1
+    x_s1 = np.array(
+        [
+            [100, 0, 0, -100, 0, 0],
+            [0, 0, 100, 0, 0, -100],
+            [0, -100, 0, 0, 100, 0],
+            [1, 2, 3, 4, 5, 6],
+        ]
+    )
+    # satellite states at epoch 2, need to be differnet from epoch 1
+    # otherwise won't work...
+    x_s2 = x_s1+5
+    num_sats = x_s1.shape[1]  # number of satellites
+    D = np.zeros((num_sats, 2 * num_sats), dtype=int)
+    for i in range(num_sats):
+        D[i, 2 * i] = -1
+        D[i, 2 * i + 1] = 1
+
+    A = block_diag(np.eye(2 * num_sats), D)
+    y = h_toy_GNSS_code_TDCP(x_u_true, x_s1=x_s1, x_s2=x_s2)[0]
+    y = y + 0.01 * np.random.randn(y.shape[0], 1)  # add noise
+    # covariance matrix
+    sigma_code = 3
+    sigma_phase = 1
+    R = block_diag(
+        sigma_code**2 * np.eye(2 * x_s1.shape[1]),
+        sigma_phase**2 * np.eye(2 * x_s1.shape[1]),
+    )
+
+    def h_A(x_u, x_s1, x_s2):
+        hx, jacobian = h_toy_GNSS_code_TDCP(x_u=x_u, x_s1=x_s1, x_s2=x_s2)
+        return (A @ hx, A @ jacobian)
+
+    # x0 for start
+    x0 = np.array([0, 0, 0, 0, 0, 0, 0, 0]).reshape(-1, 1)
+    # LS
+    estimate_result = nonlinear_least_squares(
+        h_A, A @ y, A @ R @ A.T, x0, x_s1=x_s1, x_s2=x_s2
+    )
+    print(f"x_u_true = \n{x_u_true}")
+    print(f"estimate = \n{estimate_result}")
+
 
 if __name__ == "__main__":
 
@@ -166,5 +273,6 @@ if __name__ == "__main__":
     print("estimate = ", nonlinear_least_squares(h, y, R, x0, **additional_params))
 
     # toy_example_linear_ls()
-    toy_example_non_linear_ls()
-    toy_GNSS_example_non_linear_ls_w_usr_clk_b()
+    # toy_example_non_linear_ls()
+    # toy_GNSS_example_non_linear_ls_w_usr_clk_b()
+    toy_GNSS_example_non_linear_ls_TDCP()
