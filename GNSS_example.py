@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from nonlinear_least_squares import nonlinear_least_squares
 
 
 def build_h(data, epoch):
@@ -18,13 +19,21 @@ def build_h(data, epoch):
     sat_clock_bias = epoch_data["sat_clock_offset_m"].values
     c_obs_m = epoch_data["C_obs_m"].values
 
-    return visible_sat, sat_coor, sat_clock_bias, c_obs_m
+    # model for toy GNSS example, nonlinear
+    def h_toy_GNSS_w_usr_clk_b(x_u, x_s):
+        r = np.linalg.norm(x_s[0:3,:] - x_u[0:3], axis=0).reshape(-1, 1)  # geometric range, (mx1)
+        rho = r + (x_u[-1] - x_s[-1,:]).reshape(-1,1) # add clock bias to build pseudorange
+        jacobian = np.hstack((-1 * (x_s[0:3,:] - x_u[0:3]).T / r, np.ones((rho.size,1))))  # each row is a unit vector from user to sat
+        return (rho, jacobian)
+    
+
+    return visible_sat, sat_coor, sat_clock_bias, c_obs_m, h_toy_GNSS_w_usr_clk_b
 
 
 if __name__ == "__main__":
 
     # load data
-    filepath_csv = "project\code\cycle_slip_fgo\TLSE00FRA_R_20240010100_15M_30S_MO.csv"
+    filepath_csv = "TLSE00FRA_R_20240010100_15M_30S_MO.csv"
 
     # parse cv and create pd.DataFrame
     data_prx = pd.read_csv(
@@ -69,7 +78,14 @@ if __name__ == "__main__":
     epoch = data_gps_c1c["time_of_reception_in_receiver_time"].unique() 
     sorted_epochs = sorted(epoch)
     first_epoch = sorted_epochs[0]
-    visible_sat, sat_coor, sat_clock_bias, c_obs_m = build_h(data_gps_c1c, first_epoch)
+    visible_sat, sat_coor, sat_clock_bias, c_obs_m, h = build_h(data_gps_c1c, first_epoch)
+    R = np.eye(c_obs_m.size)
+
+    # satellite states
+    x_s = np.vstack((sat_coor.T, sat_clock_bias))
+    x0 = np.array([0, 0, 0, 0]).reshape(-1, 1)
+    # LS
+    estimate_result = nonlinear_least_squares(h, c_obs_m.reshape(-1,1), R, x0, x_s=x_s)
 
 
     print("Visible Satellites:", visible_sat)
