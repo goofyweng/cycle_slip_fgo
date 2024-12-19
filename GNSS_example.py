@@ -222,7 +222,7 @@ if __name__ == "__main__":
     # covariance matrix
     sigma_code = 3
     sigma_phase = 1
-    # factor uncerntainty model
+    # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
     R = block_diag(
         sigma_code**2 * np.eye(2 * sat_coor1.shape[0]),
         sigma_phase**2 * np.eye(2 * sat_coor1.shape[0]),
@@ -253,9 +253,9 @@ if __name__ == "__main__":
     print(f"Estimated LLA at epoch 2: {estimate_lla_epoch2}")
     print("LS done...")
 
-    # calculate residual vector
+    # calculate residual vector, shape (3kx1)
     residual_vec = A @ y - h_A(estimate_result, x_s1=x_s1, x_s2=x_s2)[0]
-    # calculate residual weighted norm, i.e. test statistic z
+    # calculate residual weighted norm, i.e. test statistic z, shape (1x1)
     z = residual_vec.T @ np.linalg.inv(A @ R @ A.T) @ residual_vec
 
     # fault detection
