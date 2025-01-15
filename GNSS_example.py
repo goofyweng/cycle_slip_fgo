@@ -7,6 +7,67 @@ from ecef2lla import ecef2lla
 import scipy.stats as stats
 from plot_dist import plot_non_central_chi2, draw_vertical_line
 
+import numpy as np
+
+import numpy as np
+
+import numpy as np
+
+def epochs_with_LLI_GPS(data_gps_c1c):
+
+    # Extract and sort unique epochs
+    epoch_list = np.sort(data_gps_c1c["time_of_reception_in_receiver_time"].unique())
+    
+    # Find epochs with LLI sum == 1
+    epochs_with_LLI1 = (
+        data_gps_c1c[data_gps_c1c["LLI"] > 0]
+        .groupby("time_of_reception_in_receiver_time")
+        .filter(lambda group: group["LLI"].sum() == 1)
+        ["time_of_reception_in_receiver_time"]
+        .unique()
+    )
+    
+    # Find epochs with LLI sum == 0
+    epochs_with_LLI0 = (
+        data_gps_c1c
+        .groupby("time_of_reception_in_receiver_time")
+        .filter(lambda group: group["LLI"].sum() == 0)
+        ["time_of_reception_in_receiver_time"]
+        .unique()
+    )
+    
+    # Initialize chosen_epoch array
+    chosen_epoch = []
+    
+    # Iterate over epochs_with_LLI1
+    for epoch in epochs_with_LLI1:
+        # Ensure epoch and pre_epoch are in numpy.datetime64 format
+        epoch = np.datetime64(epoch)  # Make sure it's in the correct format
+        
+        # Find index of the current epoch
+        ind_epoch = np.where(epoch_list == epoch)[0][0]
+        
+        # Get the previous epoch if it exists
+        if ind_epoch > 0:
+            pre_epoch = epoch_list[ind_epoch - 1]
+            pre_epoch = np.datetime64(pre_epoch)  # Make sure it's in the correct format
+            
+            # Determine which list the previous epoch belongs to
+            if pre_epoch in epochs_with_LLI0:
+                chosen_epoch.append([epoch, pre_epoch, "LLI1, LLI0"])
+            elif pre_epoch in epochs_with_LLI1:
+                chosen_epoch.append([epoch, pre_epoch, "LLI1, LLI1"])
+            else:
+                chosen_epoch.append([epoch, None, "Others"])
+        else:
+            chosen_epoch.append([epoch, None, "No Previous Epoch"])
+    
+    # Convert the chosen_epoch list to a NumPy array or DataFrame for further use
+    chosen_epoch_array = np.array(chosen_epoch, dtype=object)
+    
+    return chosen_epoch_array  # [epoch, pre_epoch, flag]
+
+
 
 def build_h_A(data, epoch):
 
@@ -159,12 +220,12 @@ if __name__ == "__main__":
     # filter the data
     data_gps_c1c = data_prx[
         (data_prx["constellation"] == "G")  # keep only GPS data
-        & (
-            data_prx["rnx_obs_identifier"] == "1C"
-        )  # keep only L1C/A observations (this comes from the RINEX format)
+        & (data_prx["rnx_obs_identifier"] == "1C")  # keep only L1C/A observations (this comes from the RINEX format)
     ].reset_index(
         drop=True
     )  # reset index of the DataFrame in order to have a continuous range of integers, after deleting some lines
+
+    epochs_with_LLI_GPS(data_gps_c1c)
 
     # print the number of observations
     print(f"There are {len(data_gps_c1c)} GPS L1 C/A observations")
