@@ -235,7 +235,7 @@ if __name__ == "__main__":
 
         # manually add fault on one satellite carrier phase measurement
         if not np.isnan(prn): # if prn is not np.nan
-            y[idx_add_fault,0] += 20 # manually add cycle slip, hopfully we can detect it
+            y[idx_add_fault,0] += 20 # manually add cycle slip, hopfully we can detect it, remove the added fault for after each iteration
             idx_add_fault += 2 # shift idx to next prn carrier phase
         
         # LS
