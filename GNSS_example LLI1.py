@@ -54,7 +54,7 @@ def epochs_with_LLI_GPS(data_gps_c1c):
             
             # Determine which list the previous epoch belongs to
             if pre_epoch in epochs_with_LLI0:
-                chosen_epoch.append([pre_epoch, epoch, "LLI1, LLI0"])
+                chosen_epoch.append([pre_epoch, epoch, "LLI0, LLI1"])
             elif pre_epoch in epochs_with_LLI1:
                 chosen_epoch.append([pre_epoch, epoch, "LLI1, LLI1"])
             else:
