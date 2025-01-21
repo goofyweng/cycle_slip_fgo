@@ -1,9 +1,30 @@
 import pandas as pd
 import numpy as np
 
-def send_indicator(data_gps_c1c):
+def create_LLI_label_list(data_gps_c1c):
 
     epoch_list = data_gps_c1c["time_of_reception_in_receiver_time"].unique()
+    # Filter rows with LLI > 0 (indicating cycle slips)
+    data_gps_c1c_LLI = data_gps_c1c[data_gps_c1c["LLI"] > 0].reset_index(drop=True)
+
+    # Group by epoch and check LLI == 0 
+    epochs_with_LLI0 = (
+        data_gps_c1c
+        .groupby("time_of_reception_in_receiver_time")
+        .filter(lambda group: group["LLI"].sum() == 0)
+        ["time_of_reception_in_receiver_time"]
+        .unique() 
+    )
+
+    # Group by epoch and check LLI == 1
+    epochs_with_LLI1 = (
+        data_gps_c1c
+        .groupby("time_of_reception_in_receiver_time")
+        .filter(lambda group: group["LLI"].sum() == 1)
+        ["time_of_reception_in_receiver_time"]
+        .unique() 
+    )
+
     epoch_list = sorted(epoch_list)
     
     # Initialize indicator_matrix with appropriate size
@@ -44,17 +65,13 @@ def send_indicator(data_gps_c1c):
         if sum_LLI2 == 0:
             label_matrix[i, 3] = "no"  # If LLI == 0
         elif sum_LLI2 == 1:
+            label_matrix[i,3] = "single"
             if label_matrix[i, 2] == "single":  # If the label of epoch 1 is single
                 prn_fault_epoch2 = epoch_data2[epoch_data2["LLI"] == 1]["prn"].iloc[0] 
-                prn_fault_epoch1 = epoch_data1[epoch_data1["LLI"] == 1]["prn"].iloc[0] 
-                
-                if prn_fault_epoch2 == prn_fault_epoch1:  # If it's the same faulty sat, consider this case
-                    label_matrix[i, 3] = "single"  
-                else: # If it's diff faulty sat, change the label of epoch1
+                prn_fault_epoch1 = epoch_data1[epoch_data1["LLI"] == 1]["prn"].iloc[0]
+
+                if prn_fault_epoch2 != prn_fault_epoch1:  # If it's the same faulty sat, consider this case
                     label_matrix[i, 2] = f"no fault if exclude SAT {prn_fault_epoch1} in previous epoch"
-                    label_matrix[i, 3] = "single" 
-            else: # In the case epoch1 == no or multiple, remain the same
-                label_matrix[i,3] = "single"
         else:
             label_matrix[i, 3] = "multiple"
 
