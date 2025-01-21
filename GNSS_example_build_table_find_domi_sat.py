@@ -232,16 +232,23 @@ if __name__ == "__main__":
 
     for prn in common_sats:
         x0 = np.random.randn(8, 1)  # normally distributed random init x0 around 0
-
-        # manually add fault on one satellite carrier phase measurement
-        if not np.isnan(prn): # if prn is not np.nan
-            y[idx_add_fault,0] += 20 # manually add cycle slip, hopfully we can detect it, remove the added fault for after each iteration
-            idx_add_fault += 2 # shift idx to next prn carrier phase
+        # reinitialize the observation to store manually added fault in each iteration 
+        # make sure we remove the added fault after each iteration and only have one manually added fault
+        y_ = np.copy(y) # copy the non-faulty observation y to y_
         
+        # manually add fault on one satellite carrier phase measurement in y_
+        if not np.isnan(prn): # if prn is not np.nan
+            # manually add cycle slip
+            y_[idx_add_fault,0] += 20 
+            idx_add_fault += 2 # shift idx to next prn carrier phase
+        # check we only have one fault in the faulty observation vector 
+        check_y = y_ - y
+        print(check_y.T)
+
         # LS
         print("LS start...")
         estimate_result = nonlinear_least_squares(
-            h_A, A @ y, A @ R @ A.T, x0, x_s1=x_s1, x_s2=x_s2
+            h_A, A @ y_, A @ R @ A.T, x0, x_s1=x_s1, x_s2=x_s2
         )
         # convert estimate position from ECEF to LLA
         estimate_lla_epoch1 = np.array(
@@ -257,7 +264,7 @@ if __name__ == "__main__":
         print("LS done...")
 
         # calculate residual vector, shape (3kx1)
-        residual_vec = A @ y - h_A(estimate_result, x_s1=x_s1, x_s2=x_s2)[0]
+        residual_vec = A @ y_ - h_A(estimate_result, x_s1=x_s1, x_s2=x_s2)[0]
         # calculate residual weighted norm, i.e. test statistic z, shape (1x1)
         z = residual_vec.T @ np.linalg.inv(A @ R @ A.T) @ residual_vec
         if np.isnan(prn):
