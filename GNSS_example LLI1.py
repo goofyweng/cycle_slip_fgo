@@ -22,7 +22,8 @@ def filter_chosen_epochs(chosen_epoch_array):
     Input: chosen_epoch_array with the columns defined as follows:
     1st column: epoch t
     2nd column: epoch t+1
-    3rd and 4th column: fault flag, can be "no", "single", or "multiple"
+    3rd and 4th column: fault flag, can be "no", "single", "multiple" or 
+    "no fault if exclude SAT {prn_fault_epoch1} in previous epoch"
     =====
     Output: chosen_epoch_array_filtered filtered by the conditions.
     """
