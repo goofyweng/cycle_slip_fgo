@@ -6,52 +6,83 @@ from scipy.linalg import block_diag
 from ecef2lla import ecef2lla
 import scipy.stats as stats
 from plot_dist import plot_non_central_chi2, draw_vertical_line
+from GNSS_code_TDCP_model import h_GNSS_code_TDCP
 
-import numpy as np
 
-import numpy as np
+def filter_chosen_epochs(chosen_epoch_array):
+    """
+    The function filter the chosen_epoch_array and keep the row which
+    satisfies one of the following three conditions:
+    1. 'No Fault' in epoch t, and 'No Fault' in epoch t+1
+    2. 'No Fault' in epoch t, and 'Single Fault' in epoch t+1
+    3. 'Single Fault' in epoch t, and 'Single Fault' in epoch t+1
+    =====
+    Input: chosen_epoch_array with the columns defined as follows:
+    1st column: epoch t
+    2nd column: epoch t+1
+    3rd and 4th column: fault flag, can be "no", "single", or "multiple"
+    =====
+    Output: chosen_epoch_array_filtered filtered by the conditions.
+    """
+    # Filter rows based on the condition
+    condition1 = (chosen_epoch_array[:, 2] == "no") & (
+        chosen_epoch_array[:, 3] == "no"
+    )
+    condition2 = (chosen_epoch_array[:, 2] == "no") & (
+        chosen_epoch_array[:, 3] == "single"
+    )
+    condition3 = (chosen_epoch_array[:, 2] == "single") & (
+        chosen_epoch_array[:, 3] == "single"
+    )
 
-import numpy as np
+    # Combined conditions, union condition of condition1 and condition2
+    final_condition = condition1 | condition2 | condition3
+    # Retrieve the rows
+    chosen_epoch_array_filtered = chosen_epoch[final_condition]
+
+    return chosen_epoch_array_filtered
+
 
 def epochs_with_LLI_GPS(data_gps_c1c):
 
     # Extract and sort unique epochs
     epoch_list = np.sort(data_gps_c1c["time_of_reception_in_receiver_time"].unique())
-    
+
     # Find epochs with LLI sum == 1
     epochs_with_LLI1 = (
         data_gps_c1c[data_gps_c1c["LLI"] > 0]
         .groupby("time_of_reception_in_receiver_time")
-        .filter(lambda group: group["LLI"].sum() == 1)
-        ["time_of_reception_in_receiver_time"]
+        .filter(lambda group: group["LLI"].sum() == 1)[
+            "time_of_reception_in_receiver_time"
+        ]
         .unique()
     )
-    
+
     # Find epochs with LLI sum == 0
     epochs_with_LLI0 = (
-        data_gps_c1c
-        .groupby("time_of_reception_in_receiver_time")
-        .filter(lambda group: group["LLI"].sum() == 0)
-        ["time_of_reception_in_receiver_time"]
+        data_gps_c1c.groupby("time_of_reception_in_receiver_time")
+        .filter(lambda group: group["LLI"].sum() == 0)[
+            "time_of_reception_in_receiver_time"
+        ]
         .unique()
     )
-    
+
     # Initialize chosen_epoch array
     chosen_epoch = []
-    
+
     # Iterate over epochs_with_LLI1
     for epoch in epochs_with_LLI1:
         # Ensure epoch and pre_epoch are in numpy.datetime64 format
         epoch = np.datetime64(epoch)  # Make sure it's in the correct format
-        
+
         # Find index of the current epoch
         ind_epoch = np.where(epoch_list == epoch)[0][0]
-        
+
         # Get the previous epoch if it exists
         if ind_epoch > 0:
             pre_epoch = epoch_list[ind_epoch - 1]
             pre_epoch = np.datetime64(pre_epoch)  # Make sure it's in the correct format
-            
+
             # Determine which list the previous epoch belongs to
             if pre_epoch in epochs_with_LLI0:
                 chosen_epoch.append([pre_epoch, epoch, "LLI0, LLI1"])
@@ -61,12 +92,11 @@ def epochs_with_LLI_GPS(data_gps_c1c):
                 chosen_epoch.append([None, epoch, "Others"])
         else:
             chosen_epoch.append([None, epoch, "No Previous Epoch"])
-    
+
     # Convert the chosen_epoch list to a NumPy array or DataFrame for further use
     chosen_epoch_array = np.array(chosen_epoch, dtype=object)
-    
-    return chosen_epoch_array  # [epoch, pre_epoch, flag]
 
+    return chosen_epoch_array  # [epoch, pre_epoch, flag]
 
 
 def build_h_A(data, epoch):
@@ -124,59 +154,6 @@ def build_h_A(data, epoch):
     # upper part is Code Obs from common sats for both epoch, and low part the Cycle Obs
     y = np.concatenate([code_obs, cycle_obs], axis=0)
 
-    # model for GNSS code and TDCP, nonlinear
-    def h_GNSS_code_TDCP(x_u, x_s1, x_s2):
-        # x_u1 is the user state at epoch 1, shape (4x1), [x1,y1,z1,tb1]^T
-        # x_u2 is the user state at epoch 2, shape (4x1)
-        x_u1 = x_u[0:4]
-        x_u2 = x_u[4:]
-        # x_s1 is the states of all k satellites at epoch 1, shape (4xk)
-        # x_s2 is the states of all k satellites at epoch 2, shape (4xk)
-        # geometric range between satellites and x_u1
-        r_1 = np.linalg.norm(x_s1[0:3, :] - x_u1[0:3], axis=0).reshape(-1, 1)
-        # geometric range between satellites and x_u2
-        r_2 = np.linalg.norm(x_s2[0:3, :] - x_u2[0:3], axis=0).reshape(-1, 1)
-        # pseudorange between satellites and user at epoch 1, add clock bias
-        rho_1 = r_1 + (x_u1[-1] - x_s1[-1, :]).reshape(-1, 1)
-        # pseudorange between satellites and user at epoch 2, add clock bias
-        rho_2 = r_2 + (x_u2[-1] - x_s2[-1, :]).reshape(-1, 1)
-        # stack rho_1 and rho_2 alternatively
-        rho = np.empty(
-            (rho_1.shape[0] + rho_2.shape[0], rho_1.shape[1]), dtype=rho_1.dtype
-        )
-        rho[0::2, :] = rho_1  # fill even rows with rows from rho_1
-        rho[1::2, :] = rho_2  # fill add rowss with rows from rho_2
-        # assume phase measurement has the same model as pseudorange
-        phase = rho
-        # concate rho and phase array vertically
-        h_x = np.vstack((rho, phase)) # shape should be (4kx1)
-
-        # build jacobian
-        # jacobian for pseudorange for 1st epoch
-        jacobian_rho_1 = np.hstack(
-            (-1 * (x_s1[0:3, :] - x_u1[0:3]).T / r_1, np.ones((r_1.size, 1)))
-        )
-        # jacobian for pseudorange for 2nd epoch
-        jacobian_rho_2 = np.hstack(
-            (-1 * (x_s2[0:3, :] - x_u2[0:3]).T / r_2, np.ones((r_2.size, 1)))
-        )
-        # create the space to store jaboian matrix for 1st and 2nd epoch
-        jacobian_rho = np.zeros(
-            (
-                jacobian_rho_1.shape[0] + jacobian_rho_2.shape[0],
-                jacobian_rho_1.shape[1] + jacobian_rho_2.shape[1],
-            ),
-            dtype=jacobian_rho_1.dtype,
-        )
-        # assign jacobian_rho_1 to even rows, 1st to 4th columns
-        jacobian_rho[0::2, 0:4] = jacobian_rho_1
-        # assign jacobian_rho_2 to add rows, 5th to last columns
-        jacobian_rho[1::2, 4:] = jacobian_rho_2
-        # assume phase measurement has the same model as pseudorange
-        jacobian = np.vstack((jacobian_rho, jacobian_rho)) # shape should be (4kx8)
-
-        return (h_x, jacobian)
-
     # build D matrix in papper
     num_sats = sat_coor1.shape[0]  # number of satellites
     D = np.zeros((num_sats, 2 * num_sats), dtype=int)
@@ -186,6 +163,7 @@ def build_h_A(data, epoch):
 
     # build A matrix
     A = block_diag(np.eye(2 * num_sats), D)
+
     # build TDCP model with A matrix
     def h_A(x_u, x_s1, x_s2):
         hx, jacobian = h_GNSS_code_TDCP(x_u=x_u, x_s1=x_s1, x_s2=x_s2)
@@ -220,7 +198,9 @@ if __name__ == "__main__":
     # filter the data
     data_gps_c1c = data_prx[
         (data_prx["constellation"] == "G")  # keep only GPS data
-        & (data_prx["rnx_obs_identifier"] == "1C")  # keep only L1C/A observations (this comes from the RINEX format)
+        & (
+            data_prx["rnx_obs_identifier"] == "1C"
+        )  # keep only L1C/A observations (this comes from the RINEX format)
     ].reset_index(
         drop=True
     )  # reset index of the DataFrame in order to have a continuous range of integers, after deleting some lines
@@ -299,6 +279,7 @@ if __name__ == "__main__":
             estimate_lla_epoch2 = np.array(
                 ecef2lla(estimate_result[4], estimate_result[5], estimate_result[6])
             ).reshape(-1)
+            # convert latitude and longtitude from radiance to degree
             estimate_lla_epoch1[:2] *= 180 / np.pi
             estimate_lla_epoch2[:2] *= 180 / np.pi
             print(f"Estimated LLA at epoch 1: {estimate_lla_epoch1}")
@@ -331,17 +312,5 @@ if __name__ == "__main__":
             # index increament for each iteration
             idx += 1
 
-            # # plot z and T on the chi-squared pdf
-            # fig, ax = plt.subplots()
-            # plot_non_central_chi2(ax, m - n, 0, xlim=60)
-            # draw_vertical_line(ax, T, "red", "T")
-            # draw_vertical_line(ax, z, "blue", "z")
-            # ax.legend()
-
-
-        
-    # plt.show()
-
     fault_pred_result = np.hstack([chosen_epochs, fault_pre_vec, z_vec])
-    print(fault_pred_result[:,[0,1,-2,-1]])
-    
+    print(fault_pred_result[:, [0, 1, -2, -1]])
