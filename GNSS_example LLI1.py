@@ -7,7 +7,8 @@ from ecef2lla import ecef2lla
 import scipy.stats as stats
 from plot_dist import plot_non_central_chi2, draw_vertical_line
 from GNSS_code_TDCP_model import h_GNSS_code_TDCP
-from filter_epoch_fnc import send_indicator
+from filter_epoch_fnc import create_LLI_label_list
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 
 def filter_chosen_epochs(chosen_epoch_array):
@@ -26,9 +27,7 @@ def filter_chosen_epochs(chosen_epoch_array):
     Output: chosen_epoch_array_filtered filtered by the conditions.
     """
     # Filter rows based on the condition
-    condition1 = (chosen_epoch_array[:, 2] == "no") & (
-        chosen_epoch_array[:, 3] == "no"
-    )
+    condition1 = (chosen_epoch_array[:, 2] == "no") & (chosen_epoch_array[:, 3] == "no")
     condition2 = (chosen_epoch_array[:, 2] == "no") & (
         chosen_epoch_array[:, 3] == "single"
     )
@@ -42,6 +41,7 @@ def filter_chosen_epochs(chosen_epoch_array):
     chosen_epoch_array_filtered = chosen_epoch_array[final_condition]
 
     return chosen_epoch_array_filtered
+
 
 def build_h_A(data, epoch):
 
@@ -152,19 +152,22 @@ if __name__ == "__main__":
     # print the number of observations
     print(f"There are {len(data_gps_c1c)} GPS L1 C/A observations")
 
-    # count numbers of detected cycle slips
-    print(f"numbers of detected cycle slips:  {(data_gps_c1c.LLI == 1).sum()}")
+    # chose the epochs we want
+    chosen_epochs = create_LLI_label_list(data_gps_c1c)
+    chosen_epochs_filtered = filter_chosen_epochs(chosen_epochs)
 
-    # calculate the number of epoch
-    chosen_epochs = send_indicator(data_gps_c1c)
-    # print(f"Selected epochs {chosen_epochs}")
-
-    fault_pre_vec = np.zeros([chosen_epochs.shape[0], 1])
-    z_vec = np.zeros([chosen_epochs.shape[0], 1])
+    fault_pre_vec = np.zeros(
+        [chosen_epochs_filtered.shape[0], 1]
+    )  # save predicted fault results
+    fault_true_vec = np.zeros(
+        [chosen_epochs_filtered.shape[0], 1]
+    )  # save true fault results
+    z_vec = np.zeros([chosen_epochs_filtered.shape[0], 1])
     idx = 0
-    for chosen_epoch in chosen_epochs:
+    for chosen_epoch in chosen_epochs_filtered:
         if chosen_epoch[0] is None:
             fault_pre_vec[idx] = np.nan
+            fault_true_vec[idx] = np.nan
             z_vec[idx] = np.nan
             break
         else:
@@ -176,8 +179,15 @@ if __name__ == "__main__":
             fault_true = np.any(LLI_chosen_epochs)
             print(f"Cycle clip in selected epochs? => {fault_true}")
 
-            # get the satellite coordinates and clock bias at 1st and 2nd epochs
+            # save true fault vector
+            if chosen_epoch[2] == "single" and chosen_epoch[3] == "single":
+                fault_true_vec[idx] = 1  # true fault
+            elif chosen_epoch[2] == "no" and chosen_epoch[3] == "single":
+                fault_true_vec[idx] = 1  # true fault
+            else:
+                fault_true_vec[idx] = 0  # true no fault
 
+            # get the satellite coordinates and clock bias at 1st and 2nd epochs
             (
                 common_sats,  # satellite prns exist in both 1st and 2nd epoch
                 sat_coor1,  # satellite coordinate at 1st epoch
@@ -250,5 +260,26 @@ if __name__ == "__main__":
             # index increament for each iteration
             idx += 1
 
-    fault_pred_result = np.hstack([chosen_epochs, fault_pre_vec, z_vec])
-    print(fault_pred_result[:, [0, 1, -2, -1]])
+    # horizontally stack useful vectors
+    fault_pred_result = np.hstack(
+        [chosen_epochs_filtered, fault_true_vec, fault_pre_vec, z_vec]
+    )
+
+    # build confusion matrix
+    cm = confusion_matrix(fault_true_vec, fault_pre_vec)
+    print(cm)
+    # calculate emperical Probability of false alarm
+    TN = cm[0, 0]  # True Negative
+    FP = cm[0, 1]  # False Positive
+    FN = cm[1, 0]  # False Negative
+    TP = cm[1, 1]  # True Positive
+    P_fa = FP / (FP + TN)
+    print(f"Emperical P_fa={P_fa}, P_fa_set={P_fa_set}")
+    # make confusion matrix values into percentage
+    cm = cm / np.sum(cm) * 100
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    disp.plot()
+    disp.ax_.set_xticklabels(["No fault", "Fault"])
+    disp.ax_.set_yticklabels(["No fault", "Fault"])
+    disp.ax_.set_title(f"Emperical P_fa={P_fa}, P_fa_set={P_fa_set}")
+    plt.show()
