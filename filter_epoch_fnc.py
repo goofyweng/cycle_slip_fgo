@@ -76,3 +76,24 @@ def create_LLI_label_list(data_gps_c1c):
             label_matrix[i, 3] = "multiple"
 
     return label_matrix
+
+
+def select_evenly_dist_true(bool_array: np.array, num_true: int):
+    """
+    This function take 'bool_array' which contains k number of 'True' elements.
+    From these k 'True' elements, uniformly select 'num_true' of them
+    and change the rest into 'False'.
+    """
+    # Get the indices of all 'True' values
+    true_indices = np.where(bool_array == True)[0]
+
+    # Select number of ture evenly distributed indices
+    selected_indices = np.round(np.linspace(0, len(true_indices) - 1, num_true)).astype(int)
+
+    # Create a new boolean array with all values set to False
+    new_bool_array = np.zeros_like(bool_array, dtype=bool)
+
+    # Set the selected indices to True
+    new_bool_array[true_indices[selected_indices]] = True
+
+    return new_bool_array

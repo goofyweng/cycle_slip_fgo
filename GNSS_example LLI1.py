@@ -7,7 +7,7 @@ from ecef2lla import ecef2lla
 import scipy.stats as stats
 from plot_dist import plot_non_central_chi2, draw_vertical_line
 from GNSS_code_TDCP_model import h_GNSS_code_TDCP
-from filter_epoch_fnc import create_LLI_label_list
+from filter_epoch_fnc import create_LLI_label_list, select_evenly_dist_true
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from correct_prx_data import correct_prx_code, correct_prx_phase
 import glob
@@ -39,6 +39,14 @@ def filter_chosen_epochs(chosen_epoch_array):
         chosen_epoch_array[:, 3] == "single"
     )
 
+    # calculate number of chosen_epochs fulfill condition 2 and 3
+    num_cond2_cond3 = np.sum(condition2) + np.sum(condition3)
+    if num_cond2_cond3 >= 5: # if there are more than 5 'true no fault' events
+        # within condition1, evenly select and keep the same number of true elements as the sum
+        # of the number of true elements in condition2 and condition3
+        condition1 = select_evenly_dist_true(
+            bool_array=condition1, num_true=num_cond2_cond3
+        )
     # Combined conditions, union condition of condition1 and condition2
     final_condition = condition1 | condition2 | condition3
     # Retrieve the rows
@@ -84,7 +92,6 @@ def build_h_A(data, epoch):
     L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_m_corrected"].values
     sat_ele_rad1 = np.deg2rad(epoch_data1.loc[common_sats, "sat_elevation_deg"].values)
     sat_ele_rad2 = np.deg2rad(epoch_data2.loc[common_sats, "sat_elevation_deg"].values)
-
 
     # reorder sat_ele_rad
     sat_ele_rad = np.empty((2 * len(common_sats), 1))
@@ -148,8 +155,11 @@ if __name__ == "__main__":
 
     # Initialize an empty list to hold individual DataFrames
     dataframes = []
+    # number of files to be processed, set between 1 to len(filepath_csv), 
+    # the duration of one file is 15 minutes
+    num_files = 4
     # Loop through each file and read it
-    for file in filepath_csv[:1]:
+    for file in filepath_csv[:num_files]:
         # parse cv and create pd.DataFrame
         data_prx = pd.read_csv(
             file,
@@ -190,12 +200,13 @@ if __name__ == "__main__":
     chosen_epochs = create_LLI_label_list(data_gps_c1c)
     chosen_epochs_filtered = filter_chosen_epochs(chosen_epochs)
 
-    fault_pre_vec = np.zeros(
-        [chosen_epochs_filtered.shape[0], 1]
-    )  # save predicted fault results
-    fault_true_vec = np.zeros(
-        [chosen_epochs_filtered.shape[0], 1]
-    )  # save true fault results
+    # save predicted fault results
+    fault_pre_vec = np.zeros([chosen_epochs_filtered.shape[0], 1])
+    # save true fault results
+    fault_true_vec = np.zeros([chosen_epochs_filtered.shape[0], 1])
+
+    # save T and z results
+    T_vec = np.zeros([chosen_epochs_filtered.shape[0], 1])
     z_vec = np.zeros([chosen_epochs_filtered.shape[0], 1])
     idx = 0
 
@@ -284,10 +295,12 @@ if __name__ == "__main__":
                 fault_pred = 1  # we predict there is fault, i.e. cycle slip
                 fault_pre_vec[idx] = fault_pred
                 z_vec[idx] = z
+                T_vec[idx] = T
             else:
                 fault_pred = 0  # we predict there is no fault, i.e. no cycle slip
                 fault_pre_vec[idx] = fault_pred
                 z_vec[idx] = z
+                T_vec[idx] = T
             print(f"Cycle slip detected? => {bool(fault_pred)}")
 
             # index increament for each iteration
@@ -295,7 +308,21 @@ if __name__ == "__main__":
 
     # horizontally stack useful vectors
     fault_pred_result = np.hstack(
-        [chosen_epochs_filtered, fault_true_vec, fault_pre_vec, z_vec]
+        [chosen_epochs_filtered, fault_true_vec, fault_pre_vec, z_vec, T_vec]
+    )
+    # save prediction result into df
+    fault_pred_result_df = pd.DataFrame(
+        data=fault_pred_result,
+        columns=[
+            "chosen_epoch_t",
+            "chosen_epoch_t+1",
+            "LLI_epoch_t",
+            "LLI_epoch_t+1",
+            "fault_true",
+            "fault_pre",
+            "z",
+            "T",
+        ],
     )
 
     # build confusion matrix
