@@ -9,6 +9,7 @@ from plot_dist import plot_non_central_chi2, draw_vertical_line
 from GNSS_code_TDCP_model import h_GNSS_code_TDCP
 from filter_epoch_fnc import create_LLI_label_list
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from correct_prx_data import correct_prx_code, correct_prx_phase
 import glob
 import os
 
@@ -77,16 +78,10 @@ def build_h_A(data, epoch):
     ].values
     sat_clock_bias1 = epoch_data1.loc[common_sats, "sat_clock_offset_m"].values
     sat_clock_bias2 = epoch_data2.loc[common_sats, "sat_clock_offset_m"].values
-    C_obs_m1 = epoch_data1.loc[common_sats, "C_obs_m"].values
-    C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m"].values
-    L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_cycles"].values
-    L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_cycles"].values
-    # phase measurement from cycle to meters
-    c = 299792458
-    fL1 = 1575.42e6
-    lambda_L1 = c / fL1
-    L_obs_cycles1 = L_obs_cycles1 * lambda_L1
-    L_obs_cycles2 = L_obs_cycles2 * lambda_L1
+    C_obs_m1 = epoch_data1.loc[common_sats, "C_obs_m_corrected"].values
+    C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m_corrected"].values
+    L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_m_corrected"].values
+    L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_m_corrected"].values
 
     # reorder code obs
     code_obs = np.empty((2 * len(common_sats), 1))
@@ -130,7 +125,8 @@ def build_h_A(data, epoch):
 
 if __name__ == "__main__":
 
-    # load data
+    # load data, ref Latitude, Longitude: 43.560694, 1.480872
+    # refer from: https://network.igs.org/TLSE00FRA
     # Directory containing the CSV files
     csv_directory = "results"
     # filepath_csv = "TLSE00FRA_R_20240010100_15M_30S_MO.csv"
@@ -171,6 +167,13 @@ if __name__ == "__main__":
 
     # drop unclean data
     data_gps_c1c = data_gps_c1c.dropna()
+
+    # correct pseudorange and carrier phase
+    code_corrected = correct_prx_code(data_gps_c1c)
+    phase_corrected = correct_prx_phase(data_gps_c1c)
+    data_gps_c1c["C_obs_m_corrected"] = code_corrected
+    data_gps_c1c["L_obs_m_corrected"] = phase_corrected
+
     # print the number of observations
     print(f"There are {len(data_gps_c1c)} GPS L1 C/A observations")
 
