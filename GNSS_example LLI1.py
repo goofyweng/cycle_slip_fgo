@@ -235,6 +235,7 @@ if __name__ == "__main__":
             # covariance matrix
             sigma_code = np.diag(1 / np.sin(sat_ele_rad).flatten())
             sigma_phase = np.diag(0.05 / np.sin(sat_ele_rad).flatten())
+            # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
             R = block_diag(sigma_code, sigma_phase)
 
             # satellite states at first epoch
@@ -272,7 +273,7 @@ if __name__ == "__main__":
             # define the threshold T, by the probability of false alarm
             n = x0.shape[0]  # number of states
             m = residual_vec.shape[0]  # number of measurements
-            P_fa_set = 0.1  # desired probability of false alarm
+            P_fa_set = 0.05  # desired probability of false alarm
             T = stats.chi2.ppf(1 - P_fa_set, m - n)  # threshold
 
             # compare z with threshold
@@ -303,16 +304,12 @@ if __name__ == "__main__":
     FN = cm[1, 0]  # False Negative
     TP = cm[1, 1]  # True Positive
     P_fa = FP / (FP + TN)
-    print(
-        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}"
-    )
+    print(f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}")
     # make confusion matrix values into percentage
     cm = cm / np.sum(cm) * 100
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot()
     disp.ax_.set_xticklabels(["No fault", "Fault"])
     disp.ax_.set_yticklabels(["No fault", "Fault"])
-    disp.ax_.set_title(
-        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}"
-    )
+    disp.ax_.set_title(f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}")
     plt.show()
