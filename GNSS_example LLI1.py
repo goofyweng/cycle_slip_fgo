@@ -46,6 +46,7 @@ def filter_chosen_epochs(chosen_epoch_array):
     return chosen_epoch_array_filtered
 
 
+
 def build_h_A(data, epoch):
 
     # Choose the data from two chosen epoch
@@ -81,6 +82,12 @@ def build_h_A(data, epoch):
     C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m"].values
     L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_cycles"].values
     L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_cycles"].values
+    sat_ele_deg1 = epoch_data1.loc[common_sats, "sat_elevation_deg"].values
+    sat_ele_deg2 = epoch_data2.loc[common_sats, "sat_elevation_deg"].values
+    sat_ele_avg = (sat_ele_deg1 + sat_ele_deg2)/2
+    sigma_code = 1/np.sin(np.deg2rad(sat_ele_avg));
+    sigma_phase = 0.05/np.sin(np.deg2rad(sat_ele_avg))
+    
     # phase measurement from cycle to meters
     c = 299792458
     fL1 = 1575.42e6
@@ -125,7 +132,10 @@ def build_h_A(data, epoch):
         y,
         A,
         h_A,
+        sigma_code,
+        sigma_phase
     )
+
 
 
 if __name__ == "__main__":
@@ -144,7 +154,7 @@ if __name__ == "__main__":
     # Initialize an empty list to hold individual DataFrames
     dataframes = []
     # Loop through each file and read it
-    for file in filepath_csv[:4]:
+    for file in filepath_csv[:1]:
         # parse cv and create pd.DataFrame
         data_prx = pd.read_csv(
             file,
@@ -219,16 +229,15 @@ if __name__ == "__main__":
                 y,  # obseravtion vector
                 A,  # A matrix used to construch TDCP
                 h_A,  # (A @ h) function
+                sigma_code,
+                sigma_phase,
             ) = build_h_A(data_gps_c1c, chosen_epoch)
 
             # covariance matrix
-            sigma_code = 3
-            sigma_phase = 0.019
+            sigma_code = np.diag(sigma_code)
+            sigma_phase = np.diag(sigma_phase)
             # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
-            R = block_diag(
-                sigma_code**2 * np.eye(2 * sat_coor1.shape[0]),
-                sigma_phase**2 * np.eye(2 * sat_coor1.shape[0]),
-            )
+            R = block_diag(sigma_code, sigma_phase)
 
             # satellite states at first epoch
             x_s1 = np.vstack((sat_coor1.T, sat_clock_bias1))
