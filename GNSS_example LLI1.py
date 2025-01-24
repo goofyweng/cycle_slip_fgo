@@ -82,6 +82,14 @@ def build_h_A(data, epoch):
     C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m_corrected"].values
     L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_m_corrected"].values
     L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_m_corrected"].values
+    sat_ele_rad1 = np.deg2rad(epoch_data1.loc[common_sats, "sat_elevation_deg"].values)
+    sat_ele_rad2 = np.deg2rad(epoch_data2.loc[common_sats, "sat_elevation_deg"].values)
+
+
+    # reorder sat_ele_rad
+    sat_ele_rad = np.empty((2 * len(common_sats), 1))
+    sat_ele_rad[0::2] = sat_ele_rad1.reshape(-1, 1)
+    sat_ele_rad[1::2] = sat_ele_rad2.reshape(-1, 1)
 
     # reorder code obs
     code_obs = np.empty((2 * len(common_sats), 1))
@@ -120,6 +128,7 @@ def build_h_A(data, epoch):
         y,
         A,
         h_A,
+        sat_ele_rad,
     )
 
 
@@ -140,7 +149,7 @@ if __name__ == "__main__":
     # Initialize an empty list to hold individual DataFrames
     dataframes = []
     # Loop through each file and read it
-    for file in filepath_csv[:4]:
+    for file in filepath_csv[:1]:
         # parse cv and create pd.DataFrame
         data_prx = pd.read_csv(
             file,
@@ -189,6 +198,7 @@ if __name__ == "__main__":
     )  # save true fault results
     z_vec = np.zeros([chosen_epochs_filtered.shape[0], 1])
     idx = 0
+
     for chosen_epoch in chosen_epochs_filtered:
         if chosen_epoch[0] is None:
             fault_pre_vec[idx] = np.nan
@@ -222,16 +232,14 @@ if __name__ == "__main__":
                 y,  # obseravtion vector
                 A,  # A matrix used to construch TDCP
                 h_A,  # (A @ h) function
+                sat_ele_rad,
             ) = build_h_A(data_gps_c1c, chosen_epoch)
 
             # covariance matrix
-            sigma_code = 3
-            sigma_phase = 0.019
+            sigma_code = np.diag(1 / np.sin(sat_ele_rad).flatten())
+            sigma_phase = np.diag(0.05 / np.sin(sat_ele_rad).flatten())
             # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
-            R = block_diag(
-                sigma_code**2 * np.eye(2 * sat_coor1.shape[0]),
-                sigma_phase**2 * np.eye(2 * sat_coor1.shape[0]),
-            )
+            R = block_diag(sigma_code, sigma_phase)
 
             # satellite states at first epoch
             x_s1 = np.vstack((sat_coor1.T, sat_clock_bias1))
@@ -268,7 +276,7 @@ if __name__ == "__main__":
             # define the threshold T, by the probability of false alarm
             n = x0.shape[0]  # number of states
             m = residual_vec.shape[0]  # number of measurements
-            P_fa_set = 0.1  # desired probability of false alarm
+            P_fa_set = 0.05  # desired probability of false alarm
             T = stats.chi2.ppf(1 - P_fa_set, m - n)  # threshold
 
             # compare z with threshold
@@ -299,16 +307,12 @@ if __name__ == "__main__":
     FN = cm[1, 0]  # False Negative
     TP = cm[1, 1]  # True Positive
     P_fa = FP / (FP + TN)
-    print(
-        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}, sigma_code={sigma_code}, sigma_phase={sigma_phase}"
-    )
+    print(f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}")
     # make confusion matrix values into percentage
     cm = cm / np.sum(cm) * 100
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot()
     disp.ax_.set_xticklabels(["No fault", "Fault"])
     disp.ax_.set_yticklabels(["No fault", "Fault"])
-    disp.ax_.set_title(
-        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}, \nsigma_code={sigma_code}, sigma_phase={sigma_phase}"
-    )
+    disp.ax_.set_title(f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}")
     plt.show()
