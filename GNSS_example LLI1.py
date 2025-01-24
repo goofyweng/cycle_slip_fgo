@@ -9,6 +9,8 @@ from plot_dist import plot_non_central_chi2, draw_vertical_line
 from GNSS_code_TDCP_model import h_GNSS_code_TDCP
 from filter_epoch_fnc import create_LLI_label_list
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import glob
+import os
 
 
 def filter_chosen_epochs(chosen_epoch_array):
@@ -22,7 +24,7 @@ def filter_chosen_epochs(chosen_epoch_array):
     Input: chosen_epoch_array with the columns defined as follows:
     1st column: epoch t
     2nd column: epoch t+1
-    3rd and 4th column: fault flag, can be "no", "single", "multiple" or 
+    3rd and 4th column: fault flag, can be "no", "single", "multiple" or
     "no fault if exclude SAT {prn_fault_epoch1} in previous epoch"
     =====
     Output: chosen_epoch_array_filtered filtered by the conditions.
@@ -129,27 +131,46 @@ def build_h_A(data, epoch):
 if __name__ == "__main__":
 
     # load data
-    filepath_csv = "TLSE00FRA_R_20240010100_15M_30S_MO.csv"
-
-    # parse cv and create pd.DataFrame
-    data_prx = pd.read_csv(
-        filepath_csv,
-        comment="#",  # ignore lines beginning with '#'
-        parse_dates=[
-            "time_of_reception_in_receiver_time"
-        ],  # consider columns "time_of_reception_in_receiver_time"  as pd.Timestamp
+    # Directory containing the CSV files
+    csv_directory = "results"
+    # filepath_csv = "TLSE00FRA_R_20240010100_15M_30S_MO.csv"
+    # filepath_csv = ["TLSE00FRA_R_20240010000_15M_01S_MO.csv",
+    #                 "TLSE00FRA_R_20240010015_15M_01S_MO.csv"]
+    # Use glob to find all CSV files matching the pattern
+    filepath_csv = glob.glob(
+        os.path.join(csv_directory, "TLSE00FRA_R_*_15M_01S_MO.csv")
     )
 
-    # filter the data
-    data_gps_c1c = data_prx[
-        (data_prx["constellation"] == "G")  # keep only GPS data
-        & (
-            data_prx["rnx_obs_identifier"] == "1C"
-        )  # keep only L1C/A observations (this comes from the RINEX format)
-    ].reset_index(
-        drop=True
-    )  # reset index of the DataFrame in order to have a continuous range of integers, after deleting some lines
+    # Initialize an empty list to hold individual DataFrames
+    dataframes = []
+    # Loop through each file and read it
+    for file in filepath_csv[:4]:
+        # parse cv and create pd.DataFrame
+        data_prx = pd.read_csv(
+            file,
+            comment="#",  # ignore lines beginning with '#'
+            parse_dates=[
+                "time_of_reception_in_receiver_time"
+            ],  # consider columns "time_of_reception_in_receiver_time"  as pd.Timestamp
+        )
 
+        # filter the data
+        data_gps_c1c = data_prx[
+            (data_prx["constellation"] == "G")  # keep only GPS data
+            & (
+                data_prx["rnx_obs_identifier"] == "1C"
+            )  # keep only L1C/A observations (this comes from the RINEX format)
+        ].reset_index(
+            drop=True
+        )  # reset index of the DataFrame in order to have a continuous range of integers, after deleting some lines
+
+        # Append the DataFrame to the list
+        dataframes.append(data_gps_c1c)
+
+    data_gps_c1c = pd.concat(dataframes, ignore_index=True)
+
+    # drop unclean data
+    data_gps_c1c = data_gps_c1c.dropna()
     # print the number of observations
     print(f"There are {len(data_gps_c1c)} GPS L1 C/A observations")
 
@@ -172,7 +193,7 @@ if __name__ == "__main__":
             z_vec[idx] = np.nan
             break
         else:
-            # print(f"Selected epochs {chosen_epoch[0:2]}")
+            print(f"Selected epochs {chosen_epoch[0:2]}")
             # check if we have LLI == 1, i.e. cycle slip, in the selected epochs
             LLI_chosen_epochs = data_gps_c1c[
                 (data_gps_c1c["time_of_reception_in_receiver_time"].isin(chosen_epoch))
@@ -202,7 +223,7 @@ if __name__ == "__main__":
 
             # covariance matrix
             sigma_code = 3
-            sigma_phase = 1
+            sigma_phase = 0.019
             # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
             R = block_diag(
                 sigma_code**2 * np.eye(2 * sat_coor1.shape[0]),
@@ -275,12 +296,16 @@ if __name__ == "__main__":
     FN = cm[1, 0]  # False Negative
     TP = cm[1, 1]  # True Positive
     P_fa = FP / (FP + TN)
-    print(f"Emperical P_fa={P_fa}, P_fa_set={P_fa_set}")
+    print(
+        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}, sigma_code={sigma_code}, sigma_phase={sigma_phase}"
+    )
     # make confusion matrix values into percentage
     cm = cm / np.sum(cm) * 100
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot()
     disp.ax_.set_xticklabels(["No fault", "Fault"])
     disp.ax_.set_yticklabels(["No fault", "Fault"])
-    disp.ax_.set_title(f"Emperical P_fa={P_fa}, P_fa_set={P_fa_set}")
+    disp.ax_.set_title(
+        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}, \nsigma_code={sigma_code}, sigma_phase={sigma_phase}"
+    )
     plt.show()
