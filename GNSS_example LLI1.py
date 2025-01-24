@@ -46,7 +46,6 @@ def filter_chosen_epochs(chosen_epoch_array):
     return chosen_epoch_array_filtered
 
 
-
 def build_h_A(data, epoch):
 
     # Choose the data from two chosen epoch
@@ -82,18 +81,20 @@ def build_h_A(data, epoch):
     C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m"].values
     L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_cycles"].values
     L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_cycles"].values
-    sat_ele_deg1 = epoch_data1.loc[common_sats, "sat_elevation_deg"].values
-    sat_ele_deg2 = epoch_data2.loc[common_sats, "sat_elevation_deg"].values
-    sat_ele_avg = (sat_ele_deg1 + sat_ele_deg2)/2
-    sigma_code = 1/np.sin(np.deg2rad(sat_ele_avg));
-    sigma_phase = 0.05/np.sin(np.deg2rad(sat_ele_avg))
-    
+    sat_ele_rad1 = np.deg2rad(epoch_data1.loc[common_sats, "sat_elevation_deg"].values)
+    sat_ele_rad2 = np.deg2rad(epoch_data2.loc[common_sats, "sat_elevation_deg"].values)
+
     # phase measurement from cycle to meters
     c = 299792458
     fL1 = 1575.42e6
     lambda_L1 = c / fL1
     L_obs_cycles1 = L_obs_cycles1 * lambda_L1
     L_obs_cycles2 = L_obs_cycles2 * lambda_L1
+
+    # reorder sat_ele_rad
+    sat_ele_rad = np.empty((2 * len(common_sats), 1))
+    sat_ele_rad[0::2] = sat_ele_rad1.reshape(-1, 1)
+    sat_ele_rad[1::2] = sat_ele_rad2.reshape(-1, 1)
 
     # reorder code obs
     code_obs = np.empty((2 * len(common_sats), 1))
@@ -132,10 +133,8 @@ def build_h_A(data, epoch):
         y,
         A,
         h_A,
-        sigma_code,
-        sigma_phase
+        sat_ele_rad,
     )
-
 
 
 if __name__ == "__main__":
@@ -196,6 +195,7 @@ if __name__ == "__main__":
     )  # save true fault results
     z_vec = np.zeros([chosen_epochs_filtered.shape[0], 1])
     idx = 0
+
     for chosen_epoch in chosen_epochs_filtered:
         if chosen_epoch[0] is None:
             fault_pre_vec[idx] = np.nan
@@ -229,14 +229,12 @@ if __name__ == "__main__":
                 y,  # obseravtion vector
                 A,  # A matrix used to construch TDCP
                 h_A,  # (A @ h) function
-                sigma_code,
-                sigma_phase,
+                sat_ele_rad,
             ) = build_h_A(data_gps_c1c, chosen_epoch)
 
             # covariance matrix
-            sigma_code = np.diag(sigma_code)
-            sigma_phase = np.diag(sigma_phase)
-            # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
+            sigma_code = np.diag(1 / np.sin(sat_ele_rad).flatten())
+            sigma_phase = np.diag(0.05 / np.sin(sat_ele_rad).flatten())
             R = block_diag(sigma_code, sigma_phase)
 
             # satellite states at first epoch
@@ -306,7 +304,7 @@ if __name__ == "__main__":
     TP = cm[1, 1]  # True Positive
     P_fa = FP / (FP + TN)
     print(
-        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}, sigma_code={sigma_code}, sigma_phase={sigma_phase}"
+        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}"
     )
     # make confusion matrix values into percentage
     cm = cm / np.sum(cm) * 100
@@ -315,6 +313,6 @@ if __name__ == "__main__":
     disp.ax_.set_xticklabels(["No fault", "Fault"])
     disp.ax_.set_yticklabels(["No fault", "Fault"])
     disp.ax_.set_title(
-        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}, \nsigma_code={sigma_code}, sigma_phase={sigma_phase}"
+        f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}"
     )
     plt.show()
