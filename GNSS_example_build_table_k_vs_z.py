@@ -20,9 +20,9 @@ from scipy.linalg import block_diag
 from ecef2lla import ecef2lla
 import scipy.stats as stats
 from plot_dist import plot_non_central_chi2, draw_vertical_line
-from GNSS_code_TDCP_model import h_GNSS_code_TDCP
+from GNSS_code_TDCP_model import build_h_A, build_h_A_num_sats
 from filter_epoch_fnc import create_LLI_label_list
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from correct_prx_data import correct_prx_code, correct_prx_phase
 import glob
 import os
 
@@ -48,176 +48,6 @@ def filter_chosen_epochs_no_fault(chosen_epoch_array):
     chosen_epoch_array_filtered = chosen_epoch_array[condition1]
 
     return chosen_epoch_array_filtered
-
-
-def build_h_A(data, epoch):
-
-    # Choose the data from two chosen epoch
-    epoch_data1 = data[data["time_of_reception_in_receiver_time"] == epoch[0]]
-    epoch_data2 = data[data["time_of_reception_in_receiver_time"] == epoch[1]]
-
-    if epoch_data1.empty or epoch_data2.empty:
-        print(f"No data for one of the epochs {epoch}")
-        return None
-
-    # find the common sats appear in both epochs
-    sat_epoch1 = set(epoch_data1["prn"])
-    sat_epoch2 = set(epoch_data2["prn"])
-    common_sats = sorted(sat_epoch1 & sat_epoch2)  # find intersection and sort
-
-    if not common_sats:
-        print(f"No common satellites found between epochs {epoch}")
-        return None
-
-    # filter only the data from the common sats
-    epoch_data1 = epoch_data1[epoch_data1["prn"].isin(common_sats)].set_index("prn")
-    epoch_data2 = epoch_data2[epoch_data2["prn"].isin(common_sats)].set_index("prn")
-
-    sat_coor1 = epoch_data1.loc[
-        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
-    ].values
-    sat_coor2 = epoch_data2.loc[
-        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
-    ].values
-    sat_clock_bias1 = epoch_data1.loc[common_sats, "sat_clock_offset_m"].values
-    sat_clock_bias2 = epoch_data2.loc[common_sats, "sat_clock_offset_m"].values
-    C_obs_m1 = epoch_data1.loc[common_sats, "C_obs_m"].values
-    C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m"].values
-    L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_cycles"].values
-    L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_cycles"].values
-    # phase measurement from cycle to meters
-    c = 299792458
-    fL1 = 1575.42e6
-    lambda_L1 = c / fL1
-    L_obs_cycles1 = L_obs_cycles1 * lambda_L1
-    L_obs_cycles2 = L_obs_cycles2 * lambda_L1
-
-    # reorder code obs
-    code_obs = np.empty((2 * len(common_sats), 1))
-    code_obs[0::2] = C_obs_m1.reshape(-1, 1)  # even row epoch1
-    code_obs[1::2] = C_obs_m2.reshape(-1, 1)  # odd row epoch2
-
-    # reorder cycle obs
-    cycle_obs = np.empty((2 * len(common_sats), 1))
-    cycle_obs[0::2] = L_obs_cycles1.reshape(-1, 1)
-    cycle_obs[1::2] = L_obs_cycles2.reshape(-1, 1)
-
-    # upper part is Code Obs from common sats for both epoch, and low part the Cycle Obs
-    y = np.concatenate([code_obs, cycle_obs], axis=0)
-
-    # build D matrix in papper
-    num_sats = sat_coor1.shape[0]  # number of satellites
-    D = np.zeros((num_sats, 2 * num_sats), dtype=int)
-    for i in range(num_sats):
-        D[i, 2 * i] = -1
-        D[i, 2 * i + 1] = 1
-
-    # build A matrix
-    A = block_diag(np.eye(2 * num_sats), D)
-
-    # build TDCP model with A matrix
-    def h_A(x_u, x_s1, x_s2):
-        hx, jacobian = h_GNSS_code_TDCP(x_u=x_u, x_s1=x_s1, x_s2=x_s2)
-        return (A @ hx, A @ jacobian)
-
-    return (
-        common_sats,
-        sat_coor1,
-        sat_coor2,
-        sat_clock_bias1,
-        sat_clock_bias2,
-        y,
-        A,
-        h_A,
-    )
-
-
-def build_h_A_num_sats(data, epoch, num_sats):
-    """
-    Similar function as build_h_A but only keep the data for desired number of satellites.
-    """
-
-    # Choose the data from two chosen epoch
-    epoch_data1 = data[data["time_of_reception_in_receiver_time"] == epoch[0]]
-    epoch_data2 = data[data["time_of_reception_in_receiver_time"] == epoch[1]]
-
-    if epoch_data1.empty or epoch_data2.empty:
-        print(f"No data for one of the epochs {epoch}")
-        return None
-
-    # find the common sats appear in both epochs
-    sat_epoch1 = set(epoch_data1["prn"])
-    sat_epoch2 = set(epoch_data2["prn"])
-    common_sats = sorted(sat_epoch1 & sat_epoch2)  # find intersection and sort
-    common_sats = common_sats[
-        :num_sats
-    ]  # keep only the first desired number of satellites
-
-    if not common_sats:
-        print(f"No common satellites found between epochs {epoch}")
-        return None
-
-    # filter only the data from the common sats
-    epoch_data1 = epoch_data1[epoch_data1["prn"].isin(common_sats)].set_index("prn")
-    epoch_data2 = epoch_data2[epoch_data2["prn"].isin(common_sats)].set_index("prn")
-
-    sat_coor1 = epoch_data1.loc[
-        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
-    ].values
-    sat_coor2 = epoch_data2.loc[
-        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
-    ].values
-    sat_clock_bias1 = epoch_data1.loc[common_sats, "sat_clock_offset_m"].values
-    sat_clock_bias2 = epoch_data2.loc[common_sats, "sat_clock_offset_m"].values
-    C_obs_m1 = epoch_data1.loc[common_sats, "C_obs_m"].values
-    C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m"].values
-    L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_cycles"].values
-    L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_cycles"].values
-    # phase measurement from cycle to meters
-    c = 299792458
-    fL1 = 1575.42e6
-    lambda_L1 = c / fL1
-    L_obs_cycles1 = L_obs_cycles1 * lambda_L1
-    L_obs_cycles2 = L_obs_cycles2 * lambda_L1
-
-    # reorder code obs
-    code_obs = np.empty((2 * len(common_sats), 1))
-    code_obs[0::2] = C_obs_m1.reshape(-1, 1)  # even row epoch1
-    code_obs[1::2] = C_obs_m2.reshape(-1, 1)  # odd row epoch2
-
-    # reorder cycle obs
-    cycle_obs = np.empty((2 * len(common_sats), 1))
-    cycle_obs[0::2] = L_obs_cycles1.reshape(-1, 1)
-    cycle_obs[1::2] = L_obs_cycles2.reshape(-1, 1)
-
-    # upper part is Code Obs from common sats for both epoch, and low part the Cycle Obs
-    y = np.concatenate([code_obs, cycle_obs], axis=0)
-
-    # build D matrix in papper
-    num_sats = sat_coor1.shape[0]  # number of satellites
-    D = np.zeros((num_sats, 2 * num_sats), dtype=int)
-    for i in range(num_sats):
-        D[i, 2 * i] = -1
-        D[i, 2 * i + 1] = 1
-
-    # build A matrix
-    A = block_diag(np.eye(2 * num_sats), D)
-
-    # build TDCP model with A matrix
-    def h_A(x_u, x_s1, x_s2):
-        hx, jacobian = h_GNSS_code_TDCP(x_u=x_u, x_s1=x_s1, x_s2=x_s2)
-        return (A @ hx, A @ jacobian)
-
-    return (
-        common_sats,
-        sat_coor1,
-        sat_coor2,
-        sat_clock_bias1,
-        sat_clock_bias2,
-        y,
-        A,
-        h_A,
-    )
 
 
 if __name__ == "__main__":
@@ -260,6 +90,13 @@ if __name__ == "__main__":
 
     # drop unclean data
     data_gps_c1c = data_gps_c1c.dropna()
+
+    # correct pseudorange and carrier phase
+    code_corrected = correct_prx_code(data_gps_c1c)
+    phase_corrected = correct_prx_phase(data_gps_c1c)
+    data_gps_c1c["C_obs_m_corrected"] = code_corrected
+    data_gps_c1c["L_obs_m_corrected"] = phase_corrected
+
     # print the number of observations
     print(f"There are {len(data_gps_c1c)} GPS L1 C/A observations")
 
@@ -267,22 +104,28 @@ if __name__ == "__main__":
     chosen_epochs = create_LLI_label_list(data_gps_c1c)
     chosen_epochs_filtered = filter_chosen_epochs_no_fault(chosen_epochs)
     # chose the first pair of chosen_epochs_filtered
-    chosen_epoch_first_pair = chosen_epochs_filtered[0]
+    chosen_epoch_first_pair = chosen_epochs_filtered[10]
     print(f"Selected epochs {chosen_epoch_first_pair}")
 
     # find the all common satellites in the chosen epoch
-    (common_sats_all, _, _, _, _, _, _, _) = build_h_A(data_gps_c1c, chosen_epoch_first_pair)
+    (common_sats_all, _, _, _, _, _, _, _, _) = build_h_A(
+        data_gps_c1c, chosen_epoch_first_pair
+    )
 
     # build the num_sat vector for different '# common satellites' or 'k'
     # ex: when there are 8 common_sats, k_vec = [4, 5, 6, 7, 8]
     # Note that we still need 4 satellites to estimate the user states...
     # Because the last k rows of A@h is linearly dependent to the first 2k rows of h,
-    # where h is the jacobian matrix 
-    k_vec = np.arange(4, len(common_sats_all) + 1) 
+    # where h is the jacobian matrix
+    k_vec = np.arange(4, len(common_sats_all) + 1)
     # store the calculated residual weighted norm
-    z_vec = np.zeros([k_vec.shape[0], ])
+    z_vec = np.zeros(
+        [
+            k_vec.shape[0],
+        ]
+    )
 
-    idx = 0 # idx used to save z result
+    idx = 0  # idx used to save z result
     # loop throught different k
     for k in k_vec:
         # get the satellite coordinates and clock bias at 1st and 2nd epochs
@@ -295,16 +138,14 @@ if __name__ == "__main__":
             y,  # obseravtion vector
             A,  # A matrix used to construch TDCP
             h_A,  # (A @ h) function
+            sat_ele_rad,
         ) = build_h_A_num_sats(data_gps_c1c, chosen_epoch_first_pair, k)
 
         # covariance matrix
-        sigma_code = 3
-        sigma_phase = 0.019
+        sigma_code = np.diag(1 / np.sin(sat_ele_rad).flatten())
+        sigma_phase = np.diag(0.05 / np.sin(sat_ele_rad).flatten())
         # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
-        R = block_diag(
-            sigma_code**2 * np.eye(2 * sat_coor1.shape[0]),
-            sigma_phase**2 * np.eye(2 * sat_coor1.shape[0]),
-        )
+        R = block_diag(np.square(sigma_code), np.square(sigma_phase))
 
         # satellite states at first epoch
         x_s1 = np.vstack((sat_coor1.T, sat_clock_bias1))
@@ -354,16 +195,13 @@ if __name__ == "__main__":
         draw_vertical_line(ax, z, "blue", f"z={z.item():.4f}")
         ax.legend()
         ax.set_title(f"number of satellites, k={k}")
-    
+
         # idx increase
         idx += 1
 
     plt.show()
     # Create a pandas DataFrame
-    df = pd.DataFrame({
-        '# of satellites (k)': k_vec,  
-        'weighted residual norm (z)': z_vec  
-    })
+    df = pd.DataFrame(
+        {"# of satellites (k)": k_vec, "weighted residual norm (z)": z_vec}
+    )
     print(df)
-
-

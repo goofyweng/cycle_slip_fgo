@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.linalg import block_diag
-from GNSS_code_TDCP_model import h_GNSS_code_TDCP
+from GNSS_code_TDCP_model import build_h_A
 from nonlinear_least_squares import nonlinear_least_squares
 from ecef2lla import ecef2lla
 
@@ -13,7 +13,7 @@ fL1 = 1575.42e6  # GPA L1 carrier frequency
 def correct_prx_code(df: pd.DataFrame):
     corrected_code_obs = (
         df.C_obs_m
-        # + df.sat_clock_offset_m
+        + df.sat_clock_offset_m
         + df.relativistic_clock_effect_m
         - df.sagnac_effect_m
         - df.iono_delay_m
@@ -27,89 +27,13 @@ def correct_prx_phase(df: pd.DataFrame):
     lambda_L1 = c / fL1  # GPS L1 carrier wave length
     corrected_phase_obs = (
         df.L_obs_cycles * lambda_L1
-        # + df.sat_clock_offset_m
+        + df.sat_clock_offset_m
         + df.relativistic_clock_effect_m
         - df.sagnac_effect_m
         + df.iono_delay_m
         - df.tropo_delay_m
     )
     return corrected_phase_obs
-
-
-def build_h_A(data, epoch):
-
-    # Choose the data from two chosen epoch
-    epoch_data1 = data[data["time_of_reception_in_receiver_time"] == epoch[0]]
-    epoch_data2 = data[data["time_of_reception_in_receiver_time"] == epoch[1]]
-
-    if epoch_data1.empty or epoch_data2.empty:
-        print(f"No data for one of the epochs {epoch}")
-        return None
-
-    # find the common sats appear in both epochs
-    sat_epoch1 = set(epoch_data1["prn"])
-    sat_epoch2 = set(epoch_data2["prn"])
-    common_sats = sorted(sat_epoch1 & sat_epoch2)  # find intersection and sort
-
-    if not common_sats:
-        print(f"No common satellites found between epochs {epoch}")
-        return None
-
-    # filter only the data from the common sats
-    epoch_data1 = epoch_data1[epoch_data1["prn"].isin(common_sats)].set_index("prn")
-    epoch_data2 = epoch_data2[epoch_data2["prn"].isin(common_sats)].set_index("prn")
-
-    sat_coor1 = epoch_data1.loc[
-        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
-    ].values
-    sat_coor2 = epoch_data2.loc[
-        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
-    ].values
-    sat_clock_bias1 = epoch_data1.loc[common_sats, "sat_clock_offset_m"].values
-    sat_clock_bias2 = epoch_data2.loc[common_sats, "sat_clock_offset_m"].values
-    C_obs_m1 = epoch_data1.loc[common_sats, "C_obs_m_corrected"].values
-    C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m_corrected"].values
-    L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_m_corrected"].values
-    L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_m_corrected"].values
-
-    # reorder code obs
-    code_obs = np.empty((2 * len(common_sats), 1))
-    code_obs[0::2] = C_obs_m1.reshape(-1, 1)  # even row epoch1
-    code_obs[1::2] = C_obs_m2.reshape(-1, 1)  # odd row epoch2
-
-    # reorder cycle obs
-    cycle_obs = np.empty((2 * len(common_sats), 1))
-    cycle_obs[0::2] = L_obs_cycles1.reshape(-1, 1)
-    cycle_obs[1::2] = L_obs_cycles2.reshape(-1, 1)
-
-    # upper part is Code Obs from common sats for both epoch, and low part the Cycle Obs
-    y = np.concatenate([code_obs, cycle_obs], axis=0)
-
-    # build D matrix in papper
-    num_sats = sat_coor1.shape[0]  # number of satellites
-    D = np.zeros((num_sats, 2 * num_sats), dtype=int)
-    for i in range(num_sats):
-        D[i, 2 * i] = -1
-        D[i, 2 * i + 1] = 1
-
-    # build A matrix
-    A = block_diag(np.eye(2 * num_sats), D)
-
-    # build TDCP model with A matrix
-    def h_A(x_u, x_s1, x_s2):
-        hx, jacobian = h_GNSS_code_TDCP(x_u=x_u, x_s1=x_s1, x_s2=x_s2)
-        return (A @ hx, A @ jacobian)
-
-    return (
-        common_sats,
-        sat_coor1,
-        sat_coor2,
-        sat_clock_bias1,
-        sat_clock_bias2,
-        y,
-        A,
-        h_A,
-    )
 
 
 if __name__ == "__main__":
@@ -161,6 +85,7 @@ if __name__ == "__main__":
         y,  # obseravtion vector
         A,  # A matrix used to construch TDCP
         h_A,  # (A @ h) function
+        sat_ele_rad,
     ) = build_h_A(data_gps_c1c, chosen_epochs)
 
     # covariance matrix
@@ -198,5 +123,5 @@ if __name__ == "__main__":
     print(f"Estimated LLA at epoch 1: {estimate_lla_epoch1}")
     print(f"Estimated LLA at epoch 2: {estimate_lla_epoch2}")
     print("LS done...")
-    
-    print('done...')
+
+    print("done...")
