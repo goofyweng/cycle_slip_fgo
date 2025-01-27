@@ -1,4 +1,7 @@
 import numpy as np
+from scipy.linalg import block_diag
+
+
 # model for GNSS code and TDCP, nonlinear
 def h_GNSS_code_TDCP(x_u, x_s1, x_s2):
     # x_u1 is the user state at epoch 1, shape (4x1), [x1,y1,z1,tb1]^T
@@ -16,9 +19,7 @@ def h_GNSS_code_TDCP(x_u, x_s1, x_s2):
     # pseudorange between satellites and user at epoch 2, add clock bias
     rho_2 = r_2 + (x_u2[-1] - x_s2[-1, :]).reshape(-1, 1)
     # stack rho_1 and rho_2 alternatively
-    rho = np.empty(
-        (rho_1.shape[0] + rho_2.shape[0], rho_1.shape[1]), dtype=rho_1.dtype
-    )
+    rho = np.empty((rho_1.shape[0] + rho_2.shape[0], rho_1.shape[1]), dtype=rho_1.dtype)
     rho[0::2, :] = rho_1  # fill even rows with rows from rho_1
     rho[1::2, :] = rho_2  # fill add rowss with rows from rho_2
     # assume phase measurement has the same model as pseudorange
@@ -51,3 +52,87 @@ def h_GNSS_code_TDCP(x_u, x_s1, x_s2):
     jacobian = np.vstack((jacobian_rho, jacobian_rho))  # shape should be (4kx8)
 
     return (h_x, jacobian)
+
+
+def build_h_A(data, epoch):
+
+    # Choose the data from two chosen epoch
+    epoch_data1 = data[data["time_of_reception_in_receiver_time"] == epoch[0]]
+    epoch_data2 = data[data["time_of_reception_in_receiver_time"] == epoch[1]]
+
+    if epoch_data1.empty or epoch_data2.empty:
+        print(f"No data for one of the epochs {epoch}")
+        return None
+
+    # find the common sats appear in both epochs
+    sat_epoch1 = set(epoch_data1["prn"])
+    sat_epoch2 = set(epoch_data2["prn"])
+    common_sats = sorted(sat_epoch1 & sat_epoch2)  # find intersection and sort
+
+    if not common_sats:
+        print(f"No common satellites found between epochs {epoch}")
+        return None
+
+    # filter only the data from the common sats
+    epoch_data1 = epoch_data1[epoch_data1["prn"].isin(common_sats)].set_index("prn")
+    epoch_data2 = epoch_data2[epoch_data2["prn"].isin(common_sats)].set_index("prn")
+
+    sat_coor1 = epoch_data1.loc[
+        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
+    ].values
+    sat_coor2 = epoch_data2.loc[
+        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
+    ].values
+    sat_clock_bias1 = epoch_data1.loc[common_sats, "sat_clock_offset_m"].values
+    sat_clock_bias2 = epoch_data2.loc[common_sats, "sat_clock_offset_m"].values
+    C_obs_m1 = epoch_data1.loc[common_sats, "C_obs_m_corrected"].values
+    C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m_corrected"].values
+    L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_m_corrected"].values
+    L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_m_corrected"].values
+    sat_ele_rad1 = np.deg2rad(epoch_data1.loc[common_sats, "sat_elevation_deg"].values)
+    sat_ele_rad2 = np.deg2rad(epoch_data2.loc[common_sats, "sat_elevation_deg"].values)
+
+    # reorder sat_ele_rad
+    sat_ele_rad = np.empty((2 * len(common_sats), 1))
+    sat_ele_rad[0::2] = sat_ele_rad1.reshape(-1, 1)
+    sat_ele_rad[1::2] = sat_ele_rad2.reshape(-1, 1)
+
+    # reorder code obs
+    code_obs = np.empty((2 * len(common_sats), 1))
+    code_obs[0::2] = C_obs_m1.reshape(-1, 1)  # even row epoch1
+    code_obs[1::2] = C_obs_m2.reshape(-1, 1)  # odd row epoch2
+
+    # reorder cycle obs
+    cycle_obs = np.empty((2 * len(common_sats), 1))
+    cycle_obs[0::2] = L_obs_cycles1.reshape(-1, 1)
+    cycle_obs[1::2] = L_obs_cycles2.reshape(-1, 1)
+
+    # upper part is Code Obs from common sats for both epoch, and low part the Cycle Obs
+    y = np.concatenate([code_obs, cycle_obs], axis=0)
+
+    # build D matrix in papper
+    num_sats = sat_coor1.shape[0]  # number of satellites
+    D = np.zeros((num_sats, 2 * num_sats), dtype=int)
+    for i in range(num_sats):
+        D[i, 2 * i] = -1
+        D[i, 2 * i + 1] = 1
+
+    # build A matrix
+    A = block_diag(np.eye(2 * num_sats), D)
+
+    # build TDCP model with A matrix
+    def h_A(x_u, x_s1, x_s2):
+        hx, jacobian = h_GNSS_code_TDCP(x_u=x_u, x_s1=x_s1, x_s2=x_s2)
+        return (A @ hx, A @ jacobian)
+
+    return (
+        common_sats,
+        sat_coor1,
+        sat_coor2,
+        sat_clock_bias1,
+        sat_clock_bias2,
+        y,
+        A,
+        h_A,
+        sat_ele_rad,
+    )
