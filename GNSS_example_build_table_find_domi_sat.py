@@ -7,88 +7,8 @@ from ecef2lla import ecef2lla
 import scipy.stats as stats
 from plot_dist import plot_non_central_chi2, draw_vertical_line
 from plot_skyplot import plot_skyplot
-from GNSS_code_TDCP_model import h_GNSS_code_TDCP
-
-
-def build_h_A(data, epoch):
-
-    # Choose the data from two chosen epoch
-    epoch_data1 = data[data["time_of_reception_in_receiver_time"] == epoch[0]]
-    epoch_data2 = data[data["time_of_reception_in_receiver_time"] == epoch[1]]
-
-    if epoch_data1.empty or epoch_data2.empty:
-        print(f"No data for one of the epochs {epoch}")
-        return None
-
-    # find the common sats appear in both epochs
-    sat_epoch1 = set(epoch_data1["prn"])
-    sat_epoch2 = set(epoch_data2["prn"])
-    common_sats = sorted(sat_epoch1 & sat_epoch2)  # find intersection and sort
-
-    if not common_sats:
-        print(f"No common satellites found between epochs {epoch}")
-        return None
-
-    # filter only the data from the common sats
-    epoch_data1 = epoch_data1[epoch_data1["prn"].isin(common_sats)].set_index("prn")
-    epoch_data2 = epoch_data2[epoch_data2["prn"].isin(common_sats)].set_index("prn")
-
-    sat_coor1 = epoch_data1.loc[
-        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
-    ].values
-    sat_coor2 = epoch_data2.loc[
-        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
-    ].values
-    sat_clock_bias1 = epoch_data1.loc[common_sats, "sat_clock_offset_m"].values
-    sat_clock_bias2 = epoch_data2.loc[common_sats, "sat_clock_offset_m"].values
-    C_obs_m1 = epoch_data1.loc[common_sats, "C_obs_m"].values
-    C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m"].values
-    L_obs_cycles1 = epoch_data1.loc[common_sats, "L_obs_cycles"].values
-    L_obs_cycles2 = epoch_data2.loc[common_sats, "L_obs_cycles"].values
-    # phase measurement from cycle to meters
-    c = 299792458
-    fL1 = 1575.42e6
-    lambda_L1 = c / fL1
-    L_obs_cycles1 = L_obs_cycles1 * lambda_L1
-    L_obs_cycles2 = L_obs_cycles2 * lambda_L1
-
-    # reorder code obs
-    code_obs = np.empty((2 * len(common_sats), 1))
-    code_obs[0::2] = C_obs_m1.reshape(-1, 1)  # even row epoch1
-    code_obs[1::2] = C_obs_m2.reshape(-1, 1)  # odd row epoch2
-
-    # reorder cycle obs
-    cycle_obs = np.empty((2 * len(common_sats), 1))
-    cycle_obs[0::2] = L_obs_cycles1.reshape(-1, 1)
-    cycle_obs[1::2] = L_obs_cycles2.reshape(-1, 1)
-
-    # upper part is Code Obs from common sats for both epoch, and low part the Cycle Obs
-    y = np.concatenate([code_obs, cycle_obs], axis=0)
-
-    # build D matrix in papper
-    num_sats = sat_coor1.shape[0]  # number of satellites
-    D = np.zeros((num_sats, 2 * num_sats), dtype=int)
-    for i in range(num_sats):
-        D[i, 2 * i] = -1
-        D[i, 2 * i + 1] = 1
-
-    # build A matrix
-    A = block_diag(np.eye(2 * num_sats), D)
-    # build TDCP model with A matrix
-    def h_A(x_u, x_s1, x_s2):
-        hx, jacobian = h_GNSS_code_TDCP(x_u=x_u, x_s1=x_s1, x_s2=x_s2)
-        return (A @ hx, A @ jacobian)
-
-    return (
-        common_sats,
-        sat_coor1,
-        sat_coor2,
-        sat_clock_bias1,
-        sat_clock_bias2,
-        y,
-        A,
-        h_A,
-    )
+from GNSS_code_TDCP_model import build_h_A
+from correct_prx_data import correct_prx_code, correct_prx_phase
 
 
 if __name__ == "__main__":
@@ -118,11 +38,11 @@ if __name__ == "__main__":
     # print the number of observations
     print(f"There are {len(data_gps_c1c)} GPS L1 C/A observations")
 
-    # display first rows of DataFrame
-    print(data_gps_c1c.head())
-
-    # display existing columns
-    print(data_gps_c1c.columns)
+    # correct pseudorange and carrier phase
+    code_corrected = correct_prx_code(data_gps_c1c)
+    phase_corrected = correct_prx_phase(data_gps_c1c)
+    data_gps_c1c["C_obs_m_corrected"] = code_corrected
+    data_gps_c1c["L_obs_m_corrected"] = phase_corrected
 
     # count numbers of detected cycle slips
     print(f"numbers of detected cycle slips:  {(data_gps_c1c.LLI == 1).sum()}")
@@ -151,6 +71,7 @@ if __name__ == "__main__":
         y,  # obseravtion vector
         A,  # A matrix used to construch TDCP
         h_A,  # (A @ h) function
+        sat_ele_rad,
     ) = build_h_A(data_gps_c1c, chosen_epochs)
 
     # number of common satellites, k
@@ -159,13 +80,10 @@ if __name__ == "__main__":
     common_sats.insert(0, np.nan)
 
     # covariance matrix
-    sigma_code = 3
-    sigma_phase = 1
+    sigma_code = np.diag(1 / np.sin(sat_ele_rad).flatten())
+    sigma_phase = np.diag(0.05 / np.sin(sat_ele_rad).flatten())
     # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
-    R = block_diag(
-        sigma_code**2 * np.eye(2 * sat_coor1.shape[0]),
-        sigma_phase**2 * np.eye(2 * sat_coor1.shape[0]),
-    )
+    R = block_diag(np.square(sigma_code), np.square(sigma_phase))
 
     # satellite states at first epoch
     x_s1 = np.vstack((sat_coor1.T, sat_clock_bias1))
@@ -175,21 +93,26 @@ if __name__ == "__main__":
     np.random.seed(42)  # Set a seed for reproducibility
 
     # create DataFrame to save results
-    domi_sat_df = pd.DataFrame(columns=["PRN", "chi_pdf_value", "ecef_pos_diff_norm"])
-    idx_add_fault = 2*k + 1 # start the idx from carrier phase of first prn at epoch 2
+    domi_sat_df = pd.DataFrame(
+        columns=["PRN", "z", "chi_pdf_value", "ecef_pos_diff_norm"]
+    )
+    # start the idx from carrier phase of first prn at epoch 2
+    idx_add_fault = 2 * k + 1
+    # manually added fault value
+    added_fault_value = 3
 
     for prn in common_sats:
         x0 = np.random.randn(8, 1)  # normally distributed random init x0 around 0
-        # reinitialize the observation to store manually added fault in each iteration 
+        # reinitialize the observation to store manually added fault in each iteration
         # make sure we remove the added fault after each iteration and only have one manually added fault
-        y_ = np.copy(y) # copy the non-faulty observation y to y_
-        
+        y_ = np.copy(y)  # copy the non-faulty observation y to y_
+
         # manually add fault on one satellite carrier phase measurement in y_
-        if not np.isnan(prn): # if prn is not np.nan
+        if not np.isnan(prn):  # if prn is not np.nan
             # manually add cycle slip
-            y_[idx_add_fault,0] += 20 
-            idx_add_fault += 2 # shift idx to next prn carrier phase
-        # check we only have one fault in the faulty observation vector 
+            y_[idx_add_fault, 0] += added_fault_value
+            idx_add_fault += 2  # shift idx to next prn carrier phase
+        # check we only have one fault in the faulty observation vector
         check_y = y_ - y
         print(check_y.T)
 
@@ -217,30 +140,38 @@ if __name__ == "__main__":
         z = residual_vec.T @ np.linalg.inv(A @ R @ A.T) @ residual_vec
         if np.isnan(prn):
             # keep the ecef position in both epoch as reference
-            ref_position = estimate_result[[0,1,2,4,5,6]] 
+            ref_position = estimate_result[[0, 1, 2, 4, 5, 6]]
             # for no fault estimated position = reference position
             est_position = ref_position
         else:
-            est_position = estimate_result[[0,1,2,4,5,6]] 
+            est_position = estimate_result[[0, 1, 2, 4, 5, 6]]
 
         # calculate the pdf value
         n = x0.shape[0]  # number of states
         m = residual_vec.shape[0]  # number of measurements
-        chi_pdf_value = stats.ncx2.pdf(z, m-n, 0).item()
-        
+        chi_pdf_value = stats.ncx2.pdf(z, m - n, 0).item()
+
         # calculate the norm difference between estimated position and ref position
         pos_diff_norm = np.linalg.norm(est_position - ref_position)
 
         # save result into DataFrame
-        domi_sat_df.loc[len(domi_sat_df)] = [prn, chi_pdf_value, pos_diff_norm]
+        domi_sat_df.loc[len(domi_sat_df)] = [
+            prn,
+            z.item(),
+            chi_pdf_value,
+            pos_diff_norm,
+        ]
 
-    print(domi_sat_df)
+    print(
+        f"Manually add fault of {added_fault_value} meters into data...\n{domi_sat_df}"
+    )
 
     # plot skyplot
     satellite_prns = np.array(common_sats[1:])
-
     user_pos = est_position[0:3].flatten()
-    plot_skyplot(satellite_prns=satellite_prns, satellite_positions=sat_coor1, user_position=user_pos)
+    plot_skyplot(
+        satellite_prns=satellite_prns,
+        satellite_positions=sat_coor1,
+        user_position=user_pos,
+    )
     plt.show()
-    
-
