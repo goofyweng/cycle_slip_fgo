@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_skyplot(satellite_prns, satellite_positions, user_position):
+def plot_skyplot(satellite_prns, satellite_positions, user_position, epoch=None):
     """
     Plots a skyplot for visible satellites.
 
@@ -9,6 +9,7 @@ def plot_skyplot(satellite_prns, satellite_positions, user_position):
         satellite_prns (np.array of int): Array of satellite PRN numbers (shape: N,).
         satellite_positions (np.array): Satellite positions in ECEF (shape: Nx3).
         user_position (np.array): User position in ECEF (shape: 3,).
+        epoch: The epoch of the current epoch, default None.
 
     Returns:
         None: Displays the skyplot.
@@ -57,7 +58,10 @@ def plot_skyplot(satellite_prns, satellite_positions, user_position):
     ax.set_ylim(0, 90)
     ax.set_yticks(range(0, 91, 30))
     ax.set_yticklabels(map(str, [90, 60, 30, 0]))  # Elevation labels
-    ax.set_title("Skyplot of Visible Satellites", va='bottom')
+    if epoch != None:
+        ax.set_title(f"Skyplot of Visible Satellites at epoch {epoch}", va='bottom')
+    else:
+        ax.set_title("Skyplot of Visible Satellites", va='bottom')
 
     # Plot satellites with PRN labels
     for az, r, prn in zip(azimuths, radii, satellite_prns):

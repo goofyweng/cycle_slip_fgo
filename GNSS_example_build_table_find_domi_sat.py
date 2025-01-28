@@ -14,7 +14,7 @@ from correct_prx_data import correct_prx_code, correct_prx_phase
 if __name__ == "__main__":
 
     # load data
-    filepath_csv = "TLSE00FRA_R_20240010100_15M_30S_MO.csv"
+    filepath_csv = "TLSE00FRA_R_20240010000_15M_01S_MO.csv"
 
     # parse cv and create pd.DataFrame
     data_prx = pd.read_csv(
@@ -94,7 +94,7 @@ if __name__ == "__main__":
 
     # create DataFrame to save results
     domi_sat_df = pd.DataFrame(
-        columns=["PRN", "z", "chi_pdf_value", "ecef_pos_diff_norm"]
+        columns=["PRN", "z", "chi_pdf_value", "ecef_pos_diff_norm", "fault_pred"]
     )
     # start the idx from carrier phase of first prn at epoch 2
     idx_add_fault = 2 * k + 1
@@ -150,6 +150,14 @@ if __name__ == "__main__":
         n = x0.shape[0]  # number of states
         m = residual_vec.shape[0]  # number of measurements
         chi_pdf_value = stats.ncx2.pdf(z, m - n, 0).item()
+        P_fa_set = 0.1  # desired probability of false alarm
+        T = stats.chi2.ppf(1 - P_fa_set, m - n)  # threshold
+
+        # compare z with threshold
+        if z > T:
+            fault_pred = 1  # we predict there is fault, i.e. cycle slip
+        else:
+            fault_pred = 0  # we predict there is no fault, i.e. no cycle slip
 
         # calculate the norm difference between estimated position and ref position
         pos_diff_norm = np.linalg.norm(est_position - ref_position)
@@ -160,6 +168,7 @@ if __name__ == "__main__":
             z.item(),
             chi_pdf_value,
             pos_diff_norm,
+            fault_pred,
         ]
 
     print(
@@ -173,5 +182,6 @@ if __name__ == "__main__":
         satellite_prns=satellite_prns,
         satellite_positions=sat_coor1,
         user_position=user_pos,
+        epoch=chosen_epochs[0],
     )
     plt.show()
