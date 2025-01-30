@@ -50,7 +50,7 @@ if __name__ == "__main__":
     # calculate the number of epoch
     epoch = data_gps_c1c["time_of_reception_in_receiver_time"].unique()
     sorted_epochs = sorted(epoch)
-    chosen_epochs = [sorted_epochs[0], sorted_epochs[1]]
+    chosen_epochs = [sorted_epochs[2], sorted_epochs[3]]
     print(f"Selected epochs {chosen_epochs}")
 
     # check if we have LLI == 1, i.e. cycle slip, in the selected epochs
