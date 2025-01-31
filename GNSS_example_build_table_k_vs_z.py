@@ -63,7 +63,7 @@ if __name__ == "__main__":
     # Initialize an empty list to hold individual DataFrames
     dataframes = []
     # Loop through each file and read it
-    for file in filepath_csv[:4]:
+    for file in filepath_csv[:1]:
         # parse cv and create pd.DataFrame
         data_prx = pd.read_csv(
             file,
@@ -123,6 +123,14 @@ if __name__ == "__main__":
         [
             k_vec.shape[0],
         ]
+    )
+    # store the calculated threshold
+    T_vec = np.zeros(
+        k_vec.shape,
+    )
+    # store the corresponding DOF of chi-squared dist.
+    dof = np.zeros(
+        k_vec.shape,
     )
 
     idx = 0  # idx used to save z result
@@ -187,18 +195,27 @@ if __name__ == "__main__":
         m = residual_vec.shape[0]  # number of measurements
         P_fa_set = 0.1  # desired probability of false alarm
         T = stats.chi2.ppf(1 - P_fa_set, m - n)  # threshold
-
-        # plot z and T on the chi-squared pdf
-        fig, ax = plt.subplots()
-        plot_non_central_chi2(ax, m - n, 0, xlim=100)
-        draw_vertical_line(ax, T, "red", f"T={T:.4f}")
-        draw_vertical_line(ax, z, "blue", f"z={z.item():.4f}")
-        ax.legend()
-        ax.set_title(f"number of satellites, k={k}")
+        # save result for T and dof
+        dof[idx] = m-n
+        T_vec[idx] = T
 
         # idx increase
         idx += 1
 
+
+    # Create a figure and axis
+    fig, ax = plt.subplots(2, 3, figsize=(15, 8))
+    # Plot results for different k
+    for j in range(k_vec.shape[0]):
+        row, col = divmod(j, 3)  # Calculate row and column index
+        plot_non_central_chi2(ax[row, col], dof[j], 0, xlim=100)
+        draw_vertical_line(ax[row, col], T_vec[j], "red", f"T={T_vec[j]:.4f}")
+        draw_vertical_line(ax[row, col], z_vec[j], "blue", f"z={z_vec[j].item():.4f}")
+        ax[row, col].legend()
+        ax[row, col].set_title(f"Number of satellites k={k_vec[j]}")
+    
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
     plt.show()
     # Create a pandas DataFrame
     df = pd.DataFrame(

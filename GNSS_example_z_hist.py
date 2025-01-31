@@ -100,97 +100,130 @@ if __name__ == "__main__":
     # test with shorter chosen_epochs_filtered
     # chosen_epochs_filtered = chosen_epochs_filtered[:100]
 
+    # number of satellites we want to use in the filtered chosen epochs
+    max_num_sat = 12
+    min_num_sat = 7
+    k_vec = np.arange(min_num_sat, max_num_sat+1)  
+
     # store the calculated residual weighted norm
     z_vec = np.zeros(
         [
-            chosen_epochs_filtered.shape[0],
+            k_vec.shape[0], chosen_epochs_filtered.shape[0]
         ]
     )
-    idx = 0  # idx used to save z result
+    # store the calculated threshold
+    T_vec = np.zeros(
+        k_vec.shape,
+    )
+    # store the corresponding DOF of chi-squared dist.
+    dof = np.zeros(
+        k_vec.shape,
+    )
+    col_idx_z_vec = 0  # idx used to save z result
+    idx = 0 # idx used to save T and dof
 
     # within all filtered chosen epochs, calculate the weighted residual norm, z,
     # for specific number of satellite we want to use, k
-    k = 7  # number of satellites we want to use in the filtered chosen epochs
+    for k in k_vec:
 
-    for epoch_pair in chosen_epochs_filtered:
-        # get the satellite coordinates and clock bias at 1st and 2nd epochs
-        (
-            common_sats,  # satellite prns exist in both 1st and 2nd epoch
-            sat_coor1,  # satellite coordinate at 1st epoch
-            sat_coor2,  # satellite coordinate at 2nd epoch
-            sat_clock_bias1,  # satellite clock bias at 1st epoch
-            sat_clock_bias2,  # satellite clock bias at 2nd epoch
-            y,  # obseravtion vector
-            A,  # A matrix used to construch TDCP
-            h_A,  # (A @ h) function
-            sat_ele_rad,
-        ) = build_h_A_num_sats(data_gps_c1c, epoch_pair, k)
+        for epoch_pair in chosen_epochs_filtered:
+            # get the satellite coordinates and clock bias at 1st and 2nd epochs
+            (
+                common_sats,  # satellite prns exist in both 1st and 2nd epoch
+                sat_coor1,  # satellite coordinate at 1st epoch
+                sat_coor2,  # satellite coordinate at 2nd epoch
+                sat_clock_bias1,  # satellite clock bias at 1st epoch
+                sat_clock_bias2,  # satellite clock bias at 2nd epoch
+                y,  # obseravtion vector
+                A,  # A matrix used to construch TDCP
+                h_A,  # (A @ h) function
+                sat_ele_rad,
+            ) = build_h_A_num_sats(data_gps_c1c, epoch_pair, k)
 
-        # if the common satellites in the current epoch is less than k
-        # then continue to the next loop
-        if len(common_sats) < k:
-            continue
+            # if the common satellites in the current epoch is less than k
+            # then continue to the next loop
+            if len(common_sats) < k:
+                continue
 
-        # covariance matrix
-        sigma_code = np.diag(1 / np.sin(sat_ele_rad).flatten())
-        sigma_phase = np.diag(0.05 / np.sin(sat_ele_rad).flatten())
-        # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
-        R = block_diag(np.square(sigma_code), np.square(sigma_phase))
+            # covariance matrix
+            sigma_code = np.diag(1 / np.sin(sat_ele_rad).flatten())
+            sigma_phase = np.diag(0.05 / np.sin(sat_ele_rad).flatten())
+            # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
+            R = block_diag(np.square(sigma_code), np.square(sigma_phase))
 
-        # satellite states at first epoch
-        x_s1 = np.vstack((sat_coor1.T, sat_clock_bias1))
-        # satellite states at second epoch
-        x_s2 = np.vstack((sat_coor2.T, sat_clock_bias2))
+            # satellite states at first epoch
+            x_s1 = np.vstack((sat_coor1.T, sat_clock_bias1))
+            # satellite states at second epoch
+            x_s2 = np.vstack((sat_coor2.T, sat_clock_bias2))
 
-        np.random.seed(42)  # Set a seed for reproducibility
-        x0 = np.random.randn(8, 1)  # normally distributed random init x0 around 0
-        # LS
-        print("LS start...")
-        estimate_result = nonlinear_least_squares(
-            h_A, A @ y, A @ R @ A.T, x0, x_s1=x_s1, x_s2=x_s2
-        )
-        # convert estimate position from ECEF to LLA
-        estimate_lla_epoch1 = np.array(
-            ecef2lla(estimate_result[0], estimate_result[1], estimate_result[2])
-        ).reshape(-1)
-        estimate_lla_epoch2 = np.array(
-            ecef2lla(estimate_result[4], estimate_result[5], estimate_result[6])
-        ).reshape(-1)
-        # convert latitude and longtitude from radiance to degree
-        estimate_lla_epoch1[:2] *= 180 / np.pi
-        estimate_lla_epoch2[:2] *= 180 / np.pi
-        print(f"Estimated LLA at epoch {epoch_pair[0]}: {estimate_lla_epoch1}")
-        print(f"Estimated LLA at epoch {epoch_pair[1]}: {estimate_lla_epoch2}")
-        print("LS done...")
+            np.random.seed(42)  # Set a seed for reproducibility
+            x0 = np.random.randn(8, 1)  # normally distributed random init x0 around 0
+            # LS
+            print("LS start...")
+            estimate_result = nonlinear_least_squares(
+                h_A, A @ y, A @ R @ A.T, x0, x_s1=x_s1, x_s2=x_s2
+            )
+            # convert estimate position from ECEF to LLA
+            estimate_lla_epoch1 = np.array(
+                ecef2lla(estimate_result[0], estimate_result[1], estimate_result[2])
+            ).reshape(-1)
+            estimate_lla_epoch2 = np.array(
+                ecef2lla(estimate_result[4], estimate_result[5], estimate_result[6])
+            ).reshape(-1)
+            # convert latitude and longtitude from radiance to degree
+            estimate_lla_epoch1[:2] *= 180 / np.pi
+            estimate_lla_epoch2[:2] *= 180 / np.pi
+            print(f"Estimated LLA at epoch {epoch_pair[0]}: {estimate_lla_epoch1}")
+            print(f"Estimated LLA at epoch {epoch_pair[1]}: {estimate_lla_epoch2}")
+            print("LS done...")
 
-        # calculate residual vector, shape (3kx1)
-        residual_vec = A @ y - h_A(estimate_result, x_s1=x_s1, x_s2=x_s2)[0]
-        # calculate residual weighted norm, i.e. test statistic z, shape (1x1)
-        z = residual_vec.T @ np.linalg.inv(A @ R @ A.T) @ residual_vec
+            # calculate residual vector, shape (3kx1)
+            residual_vec = A @ y - h_A(estimate_result, x_s1=x_s1, x_s2=x_s2)[0]
+            # calculate residual weighted norm, i.e. test statistic z, shape (1x1)
+            z = residual_vec.T @ np.linalg.inv(A @ R @ A.T) @ residual_vec
 
 
-        # save z result
-        z_vec[idx] = z.item()
-        # idx increase
-        idx += 1
+            # save z result
+            z_vec[idx, col_idx_z_vec] = z.item()
+            # idx increase
+            col_idx_z_vec += 1
 
-    # plot theoretical pdf
-    n = x0.shape[0]  # number of states
-    m = residual_vec.shape[0]  # number of measurements
-    P_fa_set = 0.1  # desired probability of false alarm
-    T = stats.chi2.ppf(1 - P_fa_set, m - n)  # threshold
-    # plot z and T on the chi-squared pdf
-    fig, ax = plt.subplots()
-    plot_non_central_chi2(ax, m - n, 0, xlim=60)
-    draw_vertical_line(ax, T, "red", f"T={T:.4f}")
-    ax.hist(
-            z_vec,
+        # plot theoretical pdf
+        n = x0.shape[0]  # number of states
+        m = residual_vec.shape[0]  # number of measurements
+        P_fa_set = 0.1  # desired probability of false alarm
+        T = stats.chi2.ppf(1 - P_fa_set, m - n)  # threshold
+        # save result for T and dof
+        dof[idx] = m-n
+        T_vec[idx] = T
+
+        # increas idx and reset col_idx_z_vec for the calculation using next k
+        idx +=1
+        col_idx_z_vec= 0
+
+
+    # Create a figure and axis
+    fig, ax = plt.subplots(2, 3, figsize=(15, 8))
+    # Plot results for different k
+    for j in range(k_vec.shape[0]):
+        row, col = divmod(j, 3)  # Calculate row and column index
+        plot_non_central_chi2(ax[row, col], dof[j], 0, xlim=100)
+        draw_vertical_line(ax[row, col], T_vec[j], "red", f"T={T_vec[j]:.4f}")
+        ax[row, col].hist(
+            z_vec[j,:],
             # bins=30,
             density=True,
             alpha=0.5,
             edgecolor="black",
             label=f"$\\text{{z}}$",
         )
-    ax.legend()
+        ax[row, col].legend()
+        ax[row, col].set_title(f"Number of satellites k={k_vec[j]}")
+    
+    # Save the result of multiple arrays into a single file
+    np.savez("result_data.npz", k_vec=k_vec, z_vec=z_vec, T_vec=T_vec, dof=dof)
+
+    # Adjust layout to prevent overlap
+    plt.tight_layout()
     plt.show()
     print("done")
