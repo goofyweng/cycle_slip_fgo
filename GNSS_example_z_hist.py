@@ -57,7 +57,7 @@ if __name__ == "__main__":
     # Initialize an empty list to hold individual DataFrames
     dataframes = []
     # Loop through each file and read it
-    for file in filepath_csv[:16]:
+    for file in filepath_csv[:]:
         # parse cv and create pd.DataFrame
         data_prx = pd.read_csv(
             file,
@@ -101,15 +101,16 @@ if __name__ == "__main__":
     # chosen_epochs_filtered = chosen_epochs_filtered[:100]
 
     # number of satellites we want to use in the filtered chosen epochs
-    max_num_sat = 12
-    min_num_sat = 7
+    max_num_sat = 10
+    min_num_sat = 5
     k_vec = np.arange(min_num_sat, max_num_sat+1)  
 
-    # store the calculated residual weighted norm
-    z_vec = np.zeros(
+    # store the calculated residual weighted norm, 
+    # initialize as np.nan to count the valid number of z
+    z_vec = np.full(
         [
             k_vec.shape[0], chosen_epochs_filtered.shape[0]
-        ]
+        ], np.nan
     )
     # store the calculated threshold
     T_vec = np.zeros(
@@ -202,26 +203,30 @@ if __name__ == "__main__":
         col_idx_z_vec= 0
 
 
+    # Save the result of multiple arrays into a single file
+    np.savez("result_data.npz", k_vec=k_vec, z_vec=z_vec, T_vec=T_vec, dof=dof)
+
     # Create a figure and axis
     fig, ax = plt.subplots(2, 3, figsize=(15, 8))
     # Plot results for different k
     for j in range(k_vec.shape[0]):
+        if np.sum(~np.isnan(z_vec[j,:])) == 0:
+            continue
         row, col = divmod(j, 3)  # Calculate row and column index
         plot_non_central_chi2(ax[row, col], dof[j], 0, xlim=100)
         draw_vertical_line(ax[row, col], T_vec[j], "red", f"T={T_vec[j]:.4f}")
         ax[row, col].hist(
             z_vec[j,:],
-            # bins=30,
+            bins=30,
             density=True,
             alpha=0.5,
             edgecolor="black",
-            label=f"$\\text{{z}}$",
+            label=f"z, # of counts={np.sum(~np.isnan(z_vec[j,:]))}",
         )
         ax[row, col].legend()
+        ax[row, col].set_xlim([-3, 60])
         ax[row, col].set_title(f"Number of satellites k={k_vec[j]}")
     
-    # Save the result of multiple arrays into a single file
-    np.savez("result_data.npz", k_vec=k_vec, z_vec=z_vec, T_vec=T_vec, dof=dof)
 
     # Adjust layout to prevent overlap
     plt.tight_layout()
