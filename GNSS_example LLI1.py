@@ -244,18 +244,22 @@ if __name__ == "__main__":
     # build confusion matrix
     cm = confusion_matrix(fault_true_vec, fault_pre_vec)
     print(cm)
+
+    # Save the result of multiple arrays into a single file
+    np.savez("cm_result_real_data.npz", cm=cm, P_fa_set=np.array([P_fa_set]))
+
     # calculate emperical Probability of false alarm
     TN = cm[0, 0]  # True Negative
     FP = cm[0, 1]  # False Positive
     FN = cm[1, 0]  # False Negative
     TP = cm[1, 1]  # True Positive
     P_fa = FP / (FP + TN)
-    print(f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}")
+    print(f"Empirical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}")
     # make confusion matrix values into percentage
     cm = cm / np.sum(cm) * 100
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot()
     disp.ax_.set_xticklabels(["No fault", "Fault"])
     disp.ax_.set_yticklabels(["No fault", "Fault"])
-    disp.ax_.set_title(f"Emperical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}")
+    disp.ax_.set_title(f"Empirical P_fa={P_fa:.4f}, P_fa_set={P_fa_set}")
     plt.show()
