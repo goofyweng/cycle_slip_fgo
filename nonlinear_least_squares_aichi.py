@@ -83,23 +83,18 @@ def toy_example_non_linear_ls():
 
 def toy_example_non_linear_ls_aichi():
     # model for toy GNSS example, nonlinear
-    def h_toy_aichi(x, a, b, c, d):
-        result = np.array([[a * x[0]**2 - b * x[0]], 
-                           [c * x[1]**2 - d]])  # geometric range, (mx1)
-        jacobian = np.array([[2*a * x[0] - b], 
-                             [2*c * x[1]]])  # Jacobian matrix
+    def h_toy_aichi(x):
+        result = np.array([[4 * x[0]**2 - 7 * x[0]], 
+                           [3 * x[1]**2 - 7]])  # geometric range, (mx1)
+        jacobian = np.array([[8 * x[0] - 7], 
+                             [6 * x[1]]])  # Jacobian matrix
         return (result.reshape(2,1), jacobian.reshape(2,1))
 
     # user position
     x_true = np.array([4, 3]).reshape(-1, 1)
-    a_test = 4.0
-    b_test = 7.0
-    c_test = 3.0
-    d_test = 4.0
-    additional_params = {"a": a_test, "b": b_test, "c": c_test, "d": d_test}
 
     # Compute true measurements
-    y = h_toy_aichi(x_true,a_test,b_test,c_test,d_test)[0]
+    y = h_toy_aichi(x_true)[0]
 
     # Covariance matrix, assume diagonal
     R = np.eye(y.shape[0])
@@ -108,7 +103,7 @@ def toy_example_non_linear_ls_aichi():
     x0 = np.array([5, 2]).reshape(-1, 1)
 
     # Perform nonlinear least squares
-    estimate_result = nonlinear_least_squares(h_toy_aichi, y, R, x0, **additional_params)
+    estimate_result = nonlinear_least_squares(h_toy_aichi, y, R, x0)
 
     # Output results
     print(f"x_true = \n{x_true}")

@@ -1,31 +1,46 @@
-"""
-This script processes GPS data to analyze satellite indicators.
-It calculates TDCP for common satellites in two consecutive epochs
-and verified the LLI values that given by the data.
- 
-The script:
-1. Loads the GPS data
-2. Choose two epochs with LLI = 0
-3. Calculates it's square norm residual and plot the distribution
-
-Created on: 2024-01
-"""
-
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from nonlinear_least_squares import nonlinear_least_squares
+import pandas as pd
 from scipy.linalg import block_diag
-from ecef2lla import ecef2lla
-import scipy.stats as stats
-from plot_dist import plot_non_central_chi2, draw_vertical_line
 from GNSS_code_TDCP_model import build_h_A
-from correct_prx_data import correct_prx_code, correct_prx_phase
+from nonlinear_least_squares import nonlinear_least_squares
+from ecef2lla import ecef2lla
+
+# parameters to change phase measurement from cycle to meters
+c = 299792458  # speed of light in m/s
+fL1 = 1575.42e6  # GPA L1 carrier frequency
+
+
+def correct_prx_code(df: pd.DataFrame):
+    corrected_code_obs = (
+        df.C_obs_m
+        + df.sat_clock_offset_m
+        + df.relativistic_clock_effect_m
+        - df.sagnac_effect_m
+        - df.iono_delay_m
+        - df.tropo_delay_m
+        - df.sat_code_bias_m
+    )
+    return corrected_code_obs
+
+
+def correct_prx_phase(df: pd.DataFrame):
+    lambda_L1 = c / fL1  # GPS L1 carrier wave length
+    corrected_phase_obs = (
+        df.L_obs_cycles * lambda_L1
+        + df.sat_clock_offset_m
+        + df.relativistic_clock_effect_m
+        - df.sagnac_effect_m
+        + df.iono_delay_m
+        - df.tropo_delay_m
+    )
+    return corrected_phase_obs
 
 
 if __name__ == "__main__":
 
-    # load data
+    # load data, ref Latitude, Longitude: 43.560694, 1.480872
+    # refer from: https://network.igs.org/TLSE00FRA
+    # filepath_csv = "TLSE00FRA_R_20240010100_15M_30S_MO.csv"
     filepath_csv = "TLSE00FRA_R_20240010000_15M_01S_MO.csv"
 
     # parse cv and create pd.DataFrame
@@ -47,33 +62,17 @@ if __name__ == "__main__":
         drop=True
     )  # reset index of the DataFrame in order to have a continuous range of integers, after deleting some lines
 
-    # drop unclean data
-    data_gps_c1c = data_gps_c1c.dropna()
-
     # correct pseudorange and carrier phase
     code_corrected = correct_prx_code(data_gps_c1c)
     phase_corrected = correct_prx_phase(data_gps_c1c)
     data_gps_c1c["C_obs_m_corrected"] = code_corrected
     data_gps_c1c["L_obs_m_corrected"] = phase_corrected
 
-    # print the number of observations
-    print(f"There are {len(data_gps_c1c)} GPS L1 C/A observations")
-
-    # count numbers of detected cycle slips
-    print(f"numbers of detected cycle slips:  {(data_gps_c1c.LLI == 1).sum()}")
-
     # calculate the number of epoch
     epoch = data_gps_c1c["time_of_reception_in_receiver_time"].unique()
     sorted_epochs = sorted(epoch)
     chosen_epochs = [sorted_epochs[0], sorted_epochs[1]]
     print(f"Selected epochs {chosen_epochs}")
-
-    # check if we have LLI == 1, i.e. cycle slip, in the selected epochs
-    LLI_chosen_epochs = data_gps_c1c[
-        (data_gps_c1c["time_of_reception_in_receiver_time"].isin(chosen_epochs))
-    ].LLI.to_numpy()
-    fault_true = np.any(LLI_chosen_epochs)
-    print(f"Cycle clip in selected epochs? => {fault_true}")
 
     # get the satellite coordinates and clock bias at 1st and 2nd epochs
 
@@ -90,10 +89,13 @@ if __name__ == "__main__":
     ) = build_h_A(data_gps_c1c, chosen_epochs)
 
     # covariance matrix
-    sigma_code = np.diag(1 / np.sin(sat_ele_rad).flatten())
-    sigma_phase = np.diag(0.05 / np.sin(sat_ele_rad).flatten())
+    sigma_code = 3
+    sigma_phase = 1
     # factor uncerntainty model, R has shape (4kx4k), k is # of sats appears in both 1st and 2nd epoch
-    R = block_diag(np.square(sigma_code), np.square(sigma_phase))
+    R = block_diag(
+        sigma_code**2 * np.eye(2 * sat_coor1.shape[0]),
+        sigma_phase**2 * np.eye(2 * sat_coor1.shape[0]),
+    )
 
     # satellite states at first epoch
     x_s1 = np.vstack((sat_coor1.T, sat_clock_bias1))
@@ -116,33 +118,10 @@ if __name__ == "__main__":
     ).reshape(-1)
     estimate_lla_epoch1[:2] *= 180 / np.pi
     estimate_lla_epoch2[:2] *= 180 / np.pi
+    print(f"Estimated ECEF at epoch 1: {estimate_result[0:3].flatten()}")
+    print(f"Estimated ECEF at epoch 2: {estimate_result[4:].flatten()}")
     print(f"Estimated LLA at epoch 1: {estimate_lla_epoch1}")
     print(f"Estimated LLA at epoch 2: {estimate_lla_epoch2}")
     print("LS done...")
 
-    # calculate residual vector, shape (3kx1)
-    residual_vec = A @ y - h_A(estimate_result, x_s1=x_s1, x_s2=x_s2)[0]
-    # calculate residual weighted norm, i.e. test statistic z, shape (1x1)
-    z = residual_vec.T @ np.linalg.inv(A @ R @ A.T) @ residual_vec
-
-    # fault detection
-    # define the threshold T, by the probability of false alarm
-    n = x0.shape[0]  # number of states
-    m = residual_vec.shape[0]  # number of measurements
-    P_fa_set = 0.1  # desired probability of false alarm
-    T = stats.chi2.ppf(1 - P_fa_set, m - n)  # threshold
-
-    # compare z with threshold
-    if z > T:
-        fault_pred = 1  # we predict there is fault, i.e. cycle slip
-    else:
-        fault_pred = 0  # we predict there is no fault, i.e. no cycle slip
-    print(f"Cycle slip detected? => {bool(fault_pred)}")
-
-    # plot z and T on the chi-squared pdf
-    fig, ax = plt.subplots()
-    plot_non_central_chi2(ax, m - n, 0, xlim=60)
-    draw_vertical_line(ax, T, "red", "T")
-    draw_vertical_line(ax, z, "blue", "z")
-    ax.legend()
-    plt.show()
+    print("done...")
