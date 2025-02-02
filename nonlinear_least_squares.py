@@ -4,7 +4,6 @@ import variables
 import numpy as np
 import scipy.stats as stats
 from scipy.linalg import block_diag
-from plot_skyplot import plot_skyplot
 
 
 def criteria_to_continue(x):
@@ -32,26 +31,6 @@ def nonlinear_least_squares(h_model, y, R_model, x0, **dict_args_h_model):
         # x0[:, :] = x0[:, :] + dx0 # bug here??
         x0 = x0 + dx0
         i += 1
-
-        # Check if iteration exceeds 10000
-        if i > 3000:
-            param1 = dict_args_h_model['x_s1']
-
-            sat_pos = []
-
-            for i in range(param1.shape[1]):  
-                x, y, z = param1[0:3, i]  # 取出每一列的前 3 個元素 (x, y, z)
-                # lat, lon, alt = ecef2lla(x, y, z)  # 轉換為 lat, lon, alt
-                sat_pos.append([x, y, z])  # 將結果添加到列表中
-
-            # 將結果轉換為 numpy 陣列
-            sat_pos = np.array(sat_pos)
-
-
-            print("Maximum iteration reached, plotting skyplot and breaking loop.")
-            plot_skyplot(sat_pos, x0[0:3].reshape(-1))
-            break
-
         if criteria_to_continue(dx0) is not True:
             print("done in {} iterations".format(i - 1))
             return x0
