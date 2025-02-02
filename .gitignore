@@ -1,2 +1,8 @@
 __pycache__/
-*.csv
+cyc_s_fgo/
+TLSE00FRA_R_20240010100_15M_30S_MO.csv
+TLSE00FRA_R_*
+cyc_s_fgo
+results
+*.npz
+*.ipynb
