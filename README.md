@@ -36,7 +36,7 @@ To enhance the robustness of GNSS positioning, this project employs **Factor Gra
     ```
     pip install -r requirements.txt
     ```
-### Usage
+## Usage
 1. **Toy examples**
 Run `toy_examples.py` `toy_examples1_aichi.py` `toy_examples2_aichi.py` `toy_examples3_aichi.py` `toy_examples4_aichi.py`to show the toy examples for single fault detection and single fault identification. The results are shown as confusion matrix.
     ```
