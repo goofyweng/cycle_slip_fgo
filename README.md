@@ -3,7 +3,7 @@
 ## Description
 This project explores and implements techniques for detecting and identifying cycle slips in GNSS data. Cycle slips occur when there is a sudden change in the carrier-phase measurements due to signal interruptions, receiver dynamics, or atmospheric effects. 
 
-To enhance the robustness of GNSS positioning, this project employs **Factor Graph Optimization (FGO)** to estimate the **receiver Position, Velocity, and Time (PVT)** solution. The optimization process integrates **pseudorange** and **Time Difference Carrier Phase (TDCP)** observations to improve accuracy and mitigate cycle slip effects.
+To enhance the robustness of GNSS positioning, this project employs **Factor Graph Optimization (FGO)** to estimate the **receiver Position, Velocity, and Time (PVT)** solution. The optimization process integrates **pseudorange** and **Time Difference Carrier Phase (TDCP)** observations to improve accuracy.
 
 ## Features
 - Implementation of cycle slip detection and identification techniques.
