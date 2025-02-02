@@ -1,6 +1,13 @@
 import numpy as np
 from scipy.linalg import block_diag
 
+# geometric range model
+def geometric_range(x_u, x_s):
+    # x_u is the user ecef position with shape (3x1), [x, y, z]^T
+    # x_s is a np.array of the satellites ecef position, shape (3xk)
+    # r is the geometric range between user and all satellites in x_s, shape(k, )
+    r = np.linalg.norm(x_s[0:3, :] - x_u[0:3], axis=0)
+    return r
 
 # model for GNSS code and TDCP, nonlinear
 def h_GNSS_code_TDCP(x_u, x_s1, x_s2):
@@ -14,8 +21,8 @@ def h_GNSS_code_TDCP(x_u, x_s1, x_s2):
     r_1 = np.linalg.norm(x_s1[0:3, :] - x_u1[0:3], axis=0).reshape(-1, 1)
     # geometric range between satellites and x_u2
     r_2 = np.linalg.norm(x_s2[0:3, :] - x_u2[0:3], axis=0).reshape(-1, 1)
-    # pseudorange between satellites and user at epoch 1, add user clock bias. 
-    # The pseudorange is already corrected for satellite clock bias, ionsphere, troposhpere, etc, 
+    # pseudorange between satellites and user at epoch 1, add user clock bias.
+    # The pseudorange is already corrected for satellite clock bias, ionsphere, troposhpere, etc,
     # see 'correct_prx_data.py'
     rho_1 = r_1 + (x_u1[-1]).reshape(-1, 1)
     # pseudorange between satellites and user at epoch 2, add user clock bias
@@ -58,9 +65,9 @@ def h_GNSS_code_TDCP(x_u, x_s1, x_s2):
 
 def build_h_A(data, epoch):
     """
-    This function build the observation model, 'h(x)', for pseudorange and carrier 
-    phase measurements using two consecutive epochs, and also the 'A' matrix to 
-    build the TDCP observation model. A 'h_A(x)' function is returned which is 
+    This function build the observation model, 'h(x)', for pseudorange and carrier
+    phase measurements using two consecutive epochs, and also the 'A' matrix to
+    build the TDCP observation model. A 'h_A(x)' function is returned which is
     equivalent to A @ h(x).
     ==========
     Input:
@@ -235,6 +242,118 @@ def build_h_A_num_sats(data, epoch, num_sats):
 
     # upper part is Code Obs from common sats for both epoch, and low part the Cycle Obs
     y = np.concatenate([code_obs, cycle_obs], axis=0)
+
+    # build D matrix in papper
+    num_sats = sat_coor1.shape[0]  # number of satellites
+    D = np.zeros((num_sats, 2 * num_sats), dtype=int)
+    for i in range(num_sats):
+        D[i, 2 * i] = -1
+        D[i, 2 * i + 1] = 1
+
+    # build A matrix
+    A = block_diag(np.eye(2 * num_sats), D)
+
+    # build TDCP model with A matrix
+    def h_A(x_u, x_s1, x_s2):
+        hx, jacobian = h_GNSS_code_TDCP(x_u=x_u, x_s1=x_s1, x_s2=x_s2)
+        return (A @ hx, A @ jacobian)
+
+    return (
+        common_sats,
+        sat_coor1,
+        sat_coor2,
+        sat_clock_bias1,
+        sat_clock_bias2,
+        y,
+        A,
+        h_A,
+        sat_ele_rad,
+    )
+
+
+def build_h_A_num_sats_sim_obs(data, epoch, num_sats):
+    """
+    Similar function as build_h_A but only keep the data for desired number of satellites.
+    And generate simulated observation for pseudorange and carrier phase then return in y.
+    """
+
+    # Choose the data from two chosen epoch
+    epoch_data1 = data[data["time_of_reception_in_receiver_time"] == epoch[0]]
+    epoch_data2 = data[data["time_of_reception_in_receiver_time"] == epoch[1]]
+
+    if epoch_data1.empty or epoch_data2.empty:
+        print(f"No data for one of the epochs {epoch}")
+        return None
+
+    # find the common sats appear in both epochs
+    sat_epoch1 = set(epoch_data1["prn"])
+    sat_epoch2 = set(epoch_data2["prn"])
+    common_sats = sorted(sat_epoch1 & sat_epoch2)  # find intersection and sort
+    common_sats = common_sats[
+        :num_sats
+    ]  # keep only the first desired number of satellites
+
+    if not common_sats:
+        print(f"No common satellites found between epochs {epoch}")
+        return None
+
+    # filter only the data from the common sats
+    epoch_data1 = epoch_data1[epoch_data1["prn"].isin(common_sats)].set_index("prn")
+    epoch_data2 = epoch_data2[epoch_data2["prn"].isin(common_sats)].set_index("prn")
+
+    sat_coor1 = epoch_data1.loc[
+        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
+    ].values
+    sat_coor2 = epoch_data2.loc[
+        common_sats, ["sat_pos_x_m", "sat_pos_y_m", "sat_pos_z_m"]
+    ].values
+    
+    # generate simulated code and phase observation
+    # reference receiver ecef position at the header of TLSE00FRA_R_20240010000_15M_01S_MO.csv
+    rx_ref_ecef = np.array([4627852.1836, 119640.5917, 4372995.2726])
+    C_obs_m1_sim = geometric_range(rx_ref_ecef.reshape(-1,1), sat_coor1.T)
+    C_obs_m2_sim = geometric_range(rx_ref_ecef.reshape(-1,1), sat_coor2.T)
+    L_obs_m1_sim = geometric_range(rx_ref_ecef.reshape(-1,1), sat_coor1.T)
+    L_obs_m2_sim = geometric_range(rx_ref_ecef.reshape(-1,1), sat_coor2.T)
+
+
+    sat_clock_bias1 = epoch_data1.loc[common_sats, "sat_clock_offset_m"].values
+    sat_clock_bias2 = epoch_data2.loc[common_sats, "sat_clock_offset_m"].values
+    C_obs_m1 = epoch_data1.loc[common_sats, "C_obs_m_corrected"].values
+    C_obs_m2 = epoch_data2.loc[common_sats, "C_obs_m_corrected"].values
+    L_obs_m1 = epoch_data1.loc[common_sats, "L_obs_m_corrected"].values
+    L_obs_m2 = epoch_data2.loc[common_sats, "L_obs_m_corrected"].values
+    sat_ele_rad1 = np.deg2rad(epoch_data1.loc[common_sats, "sat_elevation_deg"].values)
+    sat_ele_rad2 = np.deg2rad(epoch_data2.loc[common_sats, "sat_elevation_deg"].values)
+
+    # reorder sat_ele_rad
+    sat_ele_rad = np.empty((2 * len(common_sats), 1))
+    sat_ele_rad[0::2] = sat_ele_rad1.reshape(-1, 1)
+    sat_ele_rad[1::2] = sat_ele_rad2.reshape(-1, 1)
+
+    # reorder code obs
+    code_obs = np.empty((2 * len(common_sats), 1))
+    code_obs[0::2] = C_obs_m1.reshape(-1, 1)  # even row epoch1
+    code_obs[1::2] = C_obs_m2.reshape(-1, 1)  # odd row epoch2
+
+    # reorder simulated code obs
+    code_obs_sim = np.empty((2 * len(common_sats), 1))
+    code_obs_sim[0::2] = C_obs_m1_sim.reshape(-1, 1)  # even row epoch1
+    code_obs_sim[1::2] = C_obs_m2_sim.reshape(-1, 1)  # odd row epoch2
+
+    # reorder cycle obs
+    carrier_obs = np.empty((2 * len(common_sats), 1))
+    carrier_obs[0::2] = L_obs_m1_sim.reshape(-1, 1) # even row epoch1
+    carrier_obs[1::2] = L_obs_m2_sim.reshape(-1, 1) # odd row epoch2
+
+    # reorder simulated carrier phase obs
+    carrier_obs_sim = np.empty((2 * len(common_sats), 1))
+    carrier_obs_sim[0::2] = L_obs_m1.reshape(-1, 1) # even row epoch1
+    carrier_obs_sim[1::2] = L_obs_m2.reshape(-1, 1) # odd row epoch2
+
+    # upper part is Code Obs from common sats for both epoch, and low part the Cycle Obs
+    # y = np.concatenate([code_obs, carrier_obs], axis=0)
+    y = np.concatenate([code_obs_sim, carrier_obs_sim], axis=0)
 
     # build D matrix in papper
     num_sats = sat_coor1.shape[0]  # number of satellites
